@@ -284,13 +284,12 @@ func (s *AteomHerder) fetchRunsc(ctx context.Context, cfg *ateletpb.RunscConfig)
 	return localPath, nil
 }
 
-func (s *AteomHerder) Run(ctx context.Context, req *ateletpb.RunRequest) (*ateletpb.RunResponse, error) {
+func (s *AteomHerder) Run(ctx context.Context, req *ateletpb.RunRequest) (resp *ateletpb.RunResponse, err error) {
 	if err := validateRunRequest(req); err != nil {
 		// status.Error so the interceptor surfaces InvalidArgument and the
 		// message instead of masking both as Internal.
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-
 	runscPath, err := s.fetchRunscAndPrep(ctx, req.GetRunsc())
 	if err != nil {
 		return nil, err
@@ -299,6 +298,15 @@ func (s *AteomHerder) Run(ctx context.Context, req *ateletpb.RunRequest) (*atele
 	if err := resetActorDirs(req.GetActorTemplateNamespace(), req.GetActorTemplateName(), req.GetActorId()); err != nil {
 		return nil, fmt.Errorf("while resetting actor dirs: %w", err)
 	}
+
+	if err := s.mountWorkloadVolumes(ctx, req.GetActorTemplateNamespace(), req.GetActorTemplateName(), req.GetActorId(), req.GetSpec().GetVolumes()); err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err != nil {
+			_ = s.unmountWorkloadVolumes(ctx, req.GetActorTemplateNamespace(), req.GetActorTemplateName(), req.GetActorId(), req.GetSpec().GetVolumes())
+		}
+	}()
 
 	if err := s.prepareOCIBundles(ctx,
 		req.GetActorTemplateNamespace(), req.GetActorTemplateName(), req.GetActorId(),
@@ -391,6 +399,7 @@ func (s *AteomHerder) Checkpoint(ctx context.Context, req *ateletpb.CheckpointRe
 		return nil, fmt.Errorf("while calling ateom.CheckpointWorkload: %w", err)
 	}
 
+	_ = s.unmountWorkloadVolumes(ctx, req.GetActorTemplateNamespace(), req.GetActorTemplateName(), req.GetActorId(), req.GetSpec().GetVolumes())
 	ns, tmpl, actorID := req.GetActorTemplateNamespace(), req.GetActorTemplateName(), req.GetActorId()
 
 	switch req.GetType() {
@@ -469,11 +478,10 @@ func (s *AteomHerder) uploadExternalCheckpoint(ctx context.Context, req *ateletp
 	return nil
 }
 
-func (s *AteomHerder) Restore(ctx context.Context, req *ateletpb.RestoreRequest) (*ateletpb.RestoreResponse, error) {
+func (s *AteomHerder) Restore(ctx context.Context, req *ateletpb.RestoreRequest) (resp *ateletpb.RestoreResponse, err error) {
 	if err := validateRestoreRequest(req); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-
 	runscPath, err := s.fetchRunscAndPrep(ctx, req.GetRunsc())
 	if err != nil {
 		return nil, err
@@ -500,6 +508,15 @@ func (s *AteomHerder) Restore(ctx context.Context, req *ateletpb.RestoreRequest)
 	default:
 		return nil, fmt.Errorf("unexpected checkpoint type: %v", req.GetType())
 	}
+
+	if err := s.mountWorkloadVolumes(ctx, req.GetActorTemplateNamespace(), req.GetActorTemplateName(), req.GetActorId(), req.GetSpec().GetVolumes()); err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err != nil {
+			_ = s.unmountWorkloadVolumes(ctx, req.GetActorTemplateNamespace(), req.GetActorTemplateName(), req.GetActorId(), req.GetSpec().GetVolumes())
+		}
+	}()
 
 	if err := s.prepareOCIBundles(ctx, ns, tmpl, actorID,
 		req.GetSpec(), req.GetTargetAteomUid(),
@@ -646,7 +663,8 @@ func (s *AteomHerder) prepareOCIBundles(
 				"io.kubernetes.cri.container-name": "pause",
 			},
 			netnsPath,
-			"", // pause is sandbox infra; it gets no actor identity mount.
+			"",  // pause is sandbox infra; it gets no actor identity mount.
+			nil, // pause gets no volume mounts.
 		); err != nil {
 			return fmt.Errorf("while creating pause OCI bundle: %w", err)
 		}
@@ -676,6 +694,7 @@ func (s *AteomHerder) prepareOCIBundles(
 				},
 				netnsPath,
 				identityDir,
+				ctr.GetVolumeMounts(),
 			); err != nil {
 				return fmt.Errorf("while creating %q OCI bundle: %w", ctr.GetName(), err)
 			}

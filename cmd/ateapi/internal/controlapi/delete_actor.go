@@ -31,6 +31,17 @@ func (s *Service) DeleteActor(ctx context.Context, req *ateapipb.DeleteActorRequ
 		return nil, err
 	}
 
+	actor, err := s.persistence.GetActor(ctx, req.GetActorId())
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, status.Errorf(codes.NotFound, "Actor %s not found", req.GetActorId())
+		}
+		return nil, fmt.Errorf("while fetching actor: %w", err)
+	}
+
+	// Delete associated volumes (TODO: best effort?)
+	s.deleteActorVolumes(ctx, req.GetActorId(), actor.GetVolumes())
+
 	if err := s.persistence.DeleteActor(ctx, req.GetActorId()); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, status.Errorf(codes.NotFound, "Actor %s not found", req.GetActorId())

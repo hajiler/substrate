@@ -151,6 +151,29 @@ func (s *CallAteletSuspendStep) Execute(ctx context.Context, input *SuspendInput
 			},
 		},
 	}
+
+	// TODO: we should use the structured volume metadata in the actor instead of
+	// looking up by name in the template.
+	// Map template volumes to resolved volumes in state
+	for _, vol := range state.ActorTemplate.Spec.Volumes {
+		var storageVolID string
+		var volType string
+		expectedID := fmt.Sprintf("%s-%s", state.Actor.GetActorId(), vol.Name)
+		for _, dbVol := range state.Actor.GetVolumes() {
+			if dbVol.GetActorVolumeId() == expectedID {
+				storageVolID = dbVol.GetStorageVolumeId()
+				volType = dbVol.GetVolumeType()
+				break
+			}
+		}
+		if storageVolID != "" {
+			req.Spec.Volumes = append(req.Spec.Volumes, &ateletpb.Volume{
+				Name:            vol.Name,
+				StorageVolumeId: storageVolID,
+				VolumeType:      volType,
+			})
+		}
+	}
 	for _, ctr := range state.ActorTemplate.Spec.Containers {
 		ateletCtr := &ateletpb.Container{
 			Name:    ctr.Name,
@@ -179,6 +202,34 @@ func (s *CallAteletSuspendStep) Execute(ctx context.Context, input *SuspendInput
 }
 
 func (s *CallAteletSuspendStep) RetryBackoff() *wait.Backoff { return nil }
+
+type DetachVolumesStep struct {
+}
+
+func (s *DetachVolumesStep) Name() string { return "DetachVolumes" }
+
+func (s *DetachVolumesStep) IsComplete(ctx context.Context, input *SuspendInput, state *SuspendState) (bool, error) {
+	return state.Actor.GetStatus() == ateapipb.Actor_STATUS_SUSPENDED && state.Actor.GetAteomPodNamespace() == "", nil
+}
+
+func (s *DetachVolumesStep) Execute(ctx context.Context, input *SuspendInput, state *SuspendState) error {
+	node := "todo"
+	if node == "" {
+		slog.WarnContext(ctx, "Actor has no assigned node during suspend, skipping detach volumes", slog.String("actor_id", input.ActorID))
+		return nil
+	}
+
+	for _, vol := range state.Actor.GetVolumes() {
+		slog.InfoContext(ctx, "Detaching volume from node", slog.String("volume_id", vol.GetStorageVolumeId()), slog.String("node", node))
+		err := getVolumePlugin().DetachVolume(ctx, vol.GetStorageVolumeId(), node)
+		if err != nil {
+			return fmt.Errorf("failed to detach volume %q from node %q: %w", vol.GetStorageVolumeId(), node, err)
+		}
+	}
+	return nil
+}
+
+func (s *DetachVolumesStep) RetryBackoff() *wait.Backoff { return nil }
 
 type FinalizeSuspendedStep struct {
 	store store.Interface

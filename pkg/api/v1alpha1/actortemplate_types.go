@@ -57,6 +57,28 @@ type Container struct {
 	// +optional
 	// +kubebuilder:validation:MaxItems=32
 	Env []EnvVar `json:"env,omitempty"`
+
+	// VolumeMounts to mount into the container's filesystem.
+	// +optional
+	// +listType=atomic
+	VolumeMounts []corev1.VolumeMount `json:"volumeMounts,omitempty"`
+}
+
+type Volume struct {
+	Name string `json:"name"`
+	// +optional
+	ExternalVolumeTemplate *ExternalVolumeTemplate `json:"externalVolumeTemplate,omitempty"`
+	// +optional
+	SharedVolume *SharedVolume `json:"sharedVolume,omitempty"`
+}
+
+type ExternalVolumeTemplate struct {
+	Capacity         string `json:"capacity"`
+	StorageClassName string `json:"storageClassName"`
+}
+
+type SharedVolume struct {
+	PersistentVolumeClaimName string `json:"persistentVolumeClaimName"`
 }
 
 // EnvVar represents an environment variable supplied to a container in an
@@ -152,6 +174,11 @@ type ActorTemplateSpec struct {
 	// +optional
 	// +kubebuilder:validation:MaxItems=10
 	Containers []Container `json:"containers,omitempty"`
+
+	// Volumes defines the volumes that can be mounted by containers in the actor.
+	// +optional
+	// +listType=atomic
+	Volumes []Volume `json:"volumes,omitempty"`
 
 	// Snapshots configuration for the actor.
 	//

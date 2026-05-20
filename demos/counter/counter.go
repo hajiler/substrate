@@ -46,11 +46,23 @@ func main() {
 		ctx := r.Context()
 		count := atomic.AddUint64(&requestCount, 1)
 		currentIP := getCurrentIP()
-		response := fmt.Sprintf("hello from: %s | preserved memory count: %d\n", currentIP, count)
+
+		err, readCount := readCountFile()
+		if err != nil {
+			readCount = err.Error()
+		}
+
+		response := fmt.Sprintf("hello from: %s | preserved memory count: %d | read count: %s\n", currentIP, count, readCount)
 		slog.InfoContext(ctx, "Handled request", slog.String("response", response))
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(response))
+
+		updateCountFile()
 	})
+
+	if err := updateCountFile(); err != nil {
+		slog.InfoContext(ctx, "Error updating count file", slog.Any("err", err))
+	}
 
 	go func() {
 		slog.InfoContext(ctx, "Starting counter server on port 80")
@@ -118,4 +130,29 @@ func getCurrentIP() string {
 		}
 	}
 	return "y.y.y.y"
+}
+
+func updateCountFile() error {
+	count := atomic.LoadUint64(&requestCount)
+	rf, err := os.Create("/data/counter-content-file")
+	if err != nil {
+		return fmt.Errorf("while opening file: %w", err)
+	}
+	defer rf.Close()
+
+	_, err = fmt.Fprintf(rf, "%d", count)
+	if err != nil {
+		return fmt.Errorf("while writing count: %w", err)
+	}
+
+	return nil
+}
+
+func readCountFile() (error, string) {
+	fileContent, err := os.ReadFile("/data/counter-content-file")
+	if err != nil {
+		// slog.Error("Error reading count file", slog.Any("err", err))
+		return err, err.Error()
+	}
+	return nil, string(fileContent)
 }

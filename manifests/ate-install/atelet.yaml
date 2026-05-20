@@ -105,8 +105,15 @@ spec:
         volumeMounts:
         - name: run-ateom
           mountPath: /var/lib/ateom-gvisor
+        - name: mock-volumes
+          mountPath: /tmp/mockvolumes
       volumes:
       - name: run-ateom
         hostPath:
           path: /var/lib/ateom-gvisor
+          type: DirectoryOrCreate
+      # For testing only
+      - name: mock-volumes
+        hostPath:
+          path: /tmp/mockvolumes
           type: DirectoryOrCreate

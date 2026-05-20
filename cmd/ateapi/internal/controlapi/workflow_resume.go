@@ -142,6 +142,34 @@ func (s *AssignWorkerStep) RetryBackoff() *wait.Backoff {
 	}
 }
 
+type AttachVolumesStep struct {
+}
+
+func (s *AttachVolumesStep) Name() string { return "AttachVolumes" }
+
+func (s *AttachVolumesStep) IsComplete(ctx context.Context, input *ResumeInput, state *ResumeState) (bool, error) {
+	return state.Actor.GetStatus() == ateapipb.Actor_STATUS_RUNNING, nil
+}
+
+func (s *AttachVolumesStep) Execute(ctx context.Context, input *ResumeInput, state *ResumeState) error {
+	// TODO
+	node := "todo"
+	if node == "" {
+		return fmt.Errorf("actor has no assigned node")
+	}
+
+	for _, vol := range state.Actor.GetVolumes() {
+		slog.InfoContext(ctx, "Attaching volume to node", slog.String("volume_id", vol.GetStorageVolumeId()), slog.String("node", node))
+		err := getVolumePlugin().AttachVolume(ctx, vol.GetStorageVolumeId(), node)
+		if err != nil {
+			return fmt.Errorf("failed to attach volume %q to node %q: %w", vol.GetStorageVolumeId(), node, err)
+		}
+	}
+	return nil
+}
+
+func (s *AttachVolumesStep) RetryBackoff() *wait.Backoff { return nil }
+
 func (s *AssignWorkerStep) findFreeWorker(workers []*ateapipb.Worker, workerPoolNamespace, workerPoolName string, nodesRestrictions []string) *ateapipb.Worker {
 	var freeWorkers []*ateapipb.Worker
 	for _, worker := range workers {
@@ -181,6 +209,36 @@ func (s *CallAteletRestoreStep) Execute(ctx context.Context, input *ResumeInput,
 	workloadSpec, err := workloadSpecFromActorTemplate(ctx, s.kubeClient, s.secretCache, state.ActorTemplate)
 	if err != nil {
 		return err
+	}
+
+	// Map template volumes to resolved volumes in state
+	for _, vol := range state.ActorTemplate.Spec.Volumes {
+		var storageVolID string
+		var volType string
+		expectedID := fmt.Sprintf("%s-%s", state.Actor.GetActorId(), vol.Name)
+		for _, dbVol := range state.Actor.GetVolumes() {
+			if dbVol.GetActorVolumeId() == expectedID {
+				storageVolID = dbVol.GetStorageVolumeId()
+				volType = dbVol.GetVolumeType()
+				break
+			}
+		}
+		if storageVolID != "" {
+			workloadSpec.Volumes = append(workloadSpec.Volumes, &ateletpb.Volume{
+				Name:            vol.Name,
+				StorageVolumeId: storageVolID,
+				VolumeType:      volType,
+			})
+		}
+	}
+
+	for i, ctr := range state.ActorTemplate.Spec.Containers {
+		for _, mount := range ctr.VolumeMounts {
+			workloadSpec.Containers[i].VolumeMounts = append(workloadSpec.Containers[i].VolumeMounts, &ateletpb.VolumeMount{
+				Name:      mount.Name,
+				MountPath: mount.MountPath,
+			})
+		}
 	}
 
 	runscCfg := &ateletpb.RunscConfig{}

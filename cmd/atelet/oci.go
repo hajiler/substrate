@@ -29,6 +29,7 @@ import (
 
 	"github.com/agent-substrate/substrate/cmd/atelet/internal/memorypullcache"
 	"github.com/agent-substrate/substrate/internal/ateompath"
+	"github.com/agent-substrate/substrate/internal/proto/ateletpb"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -51,7 +52,7 @@ const (
 	ActorIDFileName = "actor-id"
 )
 
-func prepareOCIDirectory(ctx context.Context, pullCache *memorypullcache.MemoryPullCache, actorTemplateNamespace, actorTemplateName, actorID, containerName, ref string, args []string, env []string, annotations map[string]string, netns string, identityDir string) error {
+func prepareOCIDirectory(ctx context.Context, pullCache *memorypullcache.MemoryPullCache, actorTemplateNamespace, actorTemplateName, actorID, containerName, ref string, args []string, env []string, annotations map[string]string, netns string, identityDir string, volumeMounts []*ateletpb.VolumeMount) error {
 	tracer := otel.Tracer("prepareOCIDirectory")
 
 	ctx, span := tracer.Start(ctx, "prepareOCIDirectory")
@@ -89,6 +90,16 @@ func prepareOCIDirectory(ctx context.Context, pullCache *memorypullcache.MemoryP
 	}
 
 	ociSpec := buildActorOCISpec(args, env, annotations, netns, identityDir)
+
+	for _, m := range volumeMounts {
+		hostPath := ateompath.VolumeHostPath(actorTemplateNamespace, actorTemplateName, actorID, m.GetName())
+		ociSpec.Mounts = append(ociSpec.Mounts, specs.Mount{
+			Destination: m.GetMountPath(),
+			Type:        "bind",
+			Source:      hostPath,
+			Options:     []string{"bind", "rw"},
+		})
+	}
 	ociSpecBytes, err := json.MarshalIndent(ociSpec, "", "  ")
 	if err != nil {
 		return fmt.Errorf("while marshaling OCI spec: %w", err)

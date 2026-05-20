@@ -31,7 +31,7 @@ func (s *Service) CreateActor(ctx context.Context, req *ateapipb.CreateActorRequ
 	if err := validateCreateActorRequest(req); err != nil {
 		return nil, err
 	}
-	_, err := s.actorTemplateLister.ActorTemplates(req.GetActorTemplateNamespace()).Get(req.GetActorTemplateName())
+	template, err := s.actorTemplateLister.ActorTemplates(req.GetActorTemplateNamespace()).Get(req.GetActorTemplateName())
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			return nil, status.Errorf(codes.FailedPrecondition, "ActorTemplate %s/%s not found", req.GetActorTemplateNamespace(), req.GetActorTemplateName())
@@ -40,15 +40,24 @@ func (s *Service) CreateActor(ctx context.Context, req *ateapipb.CreateActorRequ
 	}
 
 	id := req.GetActorId()
+
+	volumes, err := s.createActorVolumes(ctx, id, template)
+	if err != nil {
+		return nil, err
+	}
+
 	actor := &ateapipb.Actor{
 		ActorId:                id,
 		Version:                1,
 		Status:                 ateapipb.Actor_STATUS_SUSPENDED,
 		ActorTemplateNamespace: req.GetActorTemplateNamespace(),
 		ActorTemplateName:      req.GetActorTemplateName(),
+		Volumes:                volumes,
 	}
 	err = s.persistence.CreateActor(ctx, actor)
 	if err != nil {
+		// Cleanup created volumes if DB write fails
+		s.deleteActorVolumes(ctx, id, volumes)
 		if errors.Is(err, store.ErrAlreadyExists) {
 			return nil, status.Errorf(codes.AlreadyExists, "Actor %s already exists", id)
 		}

@@ -44,10 +44,10 @@ build: build-images build-atectl
 
 .PHONY: build-images
 build-images:
-	$(KO) build --ldflags "$(LDFLAGS)" ./cmd/ateapi
-	$(KO) build --ldflags "$(LDFLAGS)" ./cmd/atelet
-	$(KO) build --ldflags "$(LDFLAGS)" ./cmd/podcertcontroller
-	$(KO) build --ldflags "$(LDFLAGS)" ./cmd/atenet
+	$(KO) build ./cmd/ateapi
+	$(KO) build ./cmd/atelet
+	$(KO) build ./cmd/podcertcontroller
+	$(KO) build ./cmd/atenet
 
 .PHONY: build-atectl
 build-atectl:
@@ -59,7 +59,8 @@ build-atenet:
 
 .PHONY: build-demos
 build-demos:
-	$(KO) build --ldflags "$(LDFLAGS)" ./demos/counter
+	$(KO) build ./demos/counter
+	$(KO) build ./demos/counter-volume
 
 .PHONY: test
 test:

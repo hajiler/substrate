@@ -48,6 +48,14 @@ spec:
   - name: counter
     image: ko://github.com/agent-substrate/substrate/demos/counter
     command: ["/ko-app/counter"]
+    volumeMounts:
+    - name: data-vol
+      mountPath: /data
+  volumes:
+  - name: data-vol
+    externalVolumeTemplate:
+      capacity: 1Gi
+      storageClassName: standard
   workerPoolRef:
     namespace: ate-demo-counter
     name: counter

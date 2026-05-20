@@ -47,6 +47,10 @@ echo "Creating kind configuration for cluster '${KIND_CLUSTER_NAME}'..."
 cat <<EOF > "${ROOT}/bin/kind-config.yaml"
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
+containerdConfigPatches:
+- |-
+  [plugins."io.containerd.grpc.v1.cri".registry]
+    config_path = "/etc/containerd/certs.d"
 nodes:
 - role: control-plane
 # cmd/podcertcontroller depends on ClusterTrustBundle & PodCertificateRequest.
@@ -58,6 +62,7 @@ featureGates:
   PodCertificateRequest: true
 runtimeConfig:
   "certificates.k8s.io/v1beta1": "true"
+  "certificates.k8s.io/v1alpha1": "true"
 EOF
 
 echo "Deleting existing kind cluster '${KIND_CLUSTER_NAME}' if it exists..."

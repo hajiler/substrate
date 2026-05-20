@@ -75,6 +75,24 @@ message SnapshotInfo {
   }
 }
 
+message ExternalVolume {
+  // actor_id + the volume name specified in the actor template.
+  string actor_volume_id = 1;
+
+  // The volume_id returned from the storage system.
+  string storage_volume_id = 2;
+
+  // CSI driver name.  
+  string volume_type = 3;
+
+  enum Status {
+    PROVISIONING = 0;
+    CREATED = 1;
+    DELETING = 2;
+  }
+  Status status = 4;
+}
+
 message Actor {
   string actor_id = 1;
   int64  version  = 2;
@@ -102,6 +120,7 @@ message Actor {
   string in_progress_snapshot = 10;
   string ateom_pod_uid        = 11;
   SnapshotInfo latest_snapshot_info = 12;
+  repeated ExternalVolume volumes = 13;
 }
 
 message GetActorRequest {

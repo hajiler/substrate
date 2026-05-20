@@ -69,17 +69,30 @@ message RunscConfig {
   AuthenticationConfig authentication = 3;
 }
 
+message Volume {
+  string name = 1;
+  string storage_volume_id = 2;
+  string volume_type = 3;
+}
+
+message VolumeMount {
+  string name = 1;
+  string mount_path = 2;
+}
+
 // WorkloadSpec parallels Pod, but with far fewer configurable fields.
 message WorkloadSpec {
   repeated Container containers  = 1;
   string             pause_image = 2;
+  repeated Volume    volumes     = 3;
 }
 
 message Container {
-  string            name    = 1;
-  string            image   = 2;
-  repeated string   command = 3;
-  repeated EnvEntry env     = 4;
+  string               name          = 1;
+  string               image         = 2;
+  repeated string      command       = 3;
+  repeated EnvEntry    env           = 4;
+  repeated VolumeMount volume_mounts = 5;
 }
 
 message EnvEntry {
