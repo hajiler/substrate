@@ -18,7 +18,9 @@ $ go test -v ./internal/e2e/suites/... -args --e2e
 
 ## Preconditions
 
-The e2e tests assume you have a cluster setup with `hack/install.sh`.
+The e2e tests assume you have a cluster set up with Agent Substrate installed,
+for example via `hack/install-ate.sh --deploy-ate-system` or
+`hack/install-ate-kind.sh --deploy-ate-system`.
 
 ## Creating a new test suite
 
