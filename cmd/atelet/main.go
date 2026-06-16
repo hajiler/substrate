@@ -21,6 +21,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"os"
@@ -390,8 +391,52 @@ func (s *AteomHerder) Checkpoint(ctx context.Context, req *ateletpb.CheckpointRe
 		return nil, fmt.Errorf("while calling ateom.CheckpointWorkload: %w", err)
 	}
 
-	prefix := strings.TrimSuffix(req.GetSnapshotUriPrefix(), "/")
 	ns, tmpl, actorID := req.GetActorTemplateNamespace(), req.GetActorTemplateName(), req.GetActorId()
+
+	switch req.GetType() {
+	case ateletpb.CheckpointType_CHECKPOINT_TYPE_EXTERNAL:
+		if err := s.uploadExternalCheckpoint(ctx, req, checkpointDir); err != nil {
+			return nil, err
+		}
+	case ateletpb.CheckpointType_CHECKPOINT_TYPE_LOCAL:
+		if err := s.moveLocalCheckpoint(ctx, req, checkpointDir); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("unexpected checkpoint type: %v", req.GetType())
+	}
+
+	if err := resetActorDirs(ns, tmpl, actorID); err != nil {
+		return nil, fmt.Errorf("while resetting actor dirs: %w", err)
+	}
+
+	return &ateletpb.CheckpointResponse{}, nil
+}
+
+func (s *AteomHerder) moveLocalCheckpoint(ctx context.Context, req *ateletpb.CheckpointRequest, checkpointDir string) error {
+	localCheckpointPath := filepath.Join(ateompath.LocalCheckpointsDir(req.GetActorTemplateNamespace(), req.GetActorTemplateName(), req.GetActorId()), req.GetLocalConfig().GetSnapshotPrefix())
+	if err := os.MkdirAll(localCheckpointPath, 0o700); err != nil {
+		return fmt.Errorf("while creating local checkpoint directory: %w", err)
+	}
+
+	ns, tmpl := req.GetActorTemplateNamespace(), req.GetActorTemplateName()
+
+	for _, fileName := range []string{"checkpoint.img", "pages.img", "pages_meta.img"} {
+		src := filepath.Join(checkpointDir, fileName)
+		dst := filepath.Join(localCheckpointPath, fileName)
+		recordSnapshotSize(ctx, strings.TrimSuffix(fileName, ".img"), src, ns, tmpl)
+
+		if err := os.Rename(src, dst); err != nil {
+			return fmt.Errorf("failed to move %s to %s: %w", src, dst, err)
+		}
+	}
+
+	return nil
+}
+
+func (s *AteomHerder) uploadExternalCheckpoint(ctx context.Context, req *ateletpb.CheckpointRequest, checkpointDir string) error {
+	ns, tmpl := req.GetActorTemplateNamespace(), req.GetActorTemplateName()
+	prefix := strings.TrimSuffix(req.GetExternalConfig().GetSnapshotUriPrefix(), "/")
 
 	checkpointImgPath := filepath.Join(checkpointDir, "checkpoint.img")
 	pagesImgPath := filepath.Join(checkpointDir, "pages.img")
@@ -404,7 +449,7 @@ func (s *AteomHerder) Checkpoint(ctx context.Context, req *ateletpb.CheckpointRe
 		prefix+"/checkpoint.img.zstd",
 		checkpointImgPath,
 	); err != nil {
-		return nil, fmt.Errorf("while uploading checkpoint.img to GCS: %w", err)
+		return fmt.Errorf("while uploading checkpoint.img to GCS: %w", err)
 	}
 
 	recordSnapshotSize(ctx, "pages", pagesImgPath, ns, tmpl)
@@ -412,21 +457,16 @@ func (s *AteomHerder) Checkpoint(ctx context.Context, req *ateletpb.CheckpointRe
 		prefix+"/pages.img.zstd",
 		pagesImgPath,
 	); err != nil {
-		return nil, err
+		return err
 	}
 	recordSnapshotSize(ctx, "pages_meta", pagesMetaImgPath, ns, tmpl)
 	if err := uploadIfExists(ctx, s.gcsClient,
 		prefix+"/pages_meta.img.zstd",
 		pagesMetaImgPath,
 	); err != nil {
-		return nil, err
+		return err
 	}
-
-	if err := resetActorDirs(ns, tmpl, actorID); err != nil {
-		return nil, fmt.Errorf("while resetting actor dirs: %w", err)
-	}
-
-	return &ateletpb.CheckpointResponse{}, nil
+	return nil
 }
 
 func (s *AteomHerder) Restore(ctx context.Context, req *ateletpb.RestoreRequest) (*ateletpb.RestoreResponse, error) {
@@ -446,27 +486,19 @@ func (s *AteomHerder) Restore(ctx context.Context, req *ateletpb.RestoreRequest)
 	}
 
 	checkpointDir := ateompath.RestoreStateDir(req.GetActorTemplateNamespace(), req.GetActorTemplateName(), req.GetActorId())
-	checkpointImgPath := filepath.Join(checkpointDir, "checkpoint.img")
-	pagesImgPath := filepath.Join(checkpointDir, "pages.img")
-	pagesMetaImgPath := filepath.Join(checkpointDir, "pages_meta.img")
-
-	prefix := strings.TrimSuffix(req.GetSnapshotUriPrefix(), "/")
-	g, gCtx := errgroup.WithContext(ctx)
-	for _, dl := range []struct{ remote, local string }{
-		{prefix + "/checkpoint.img.zstd", checkpointImgPath},
-		{prefix + "/pages.img.zstd", pagesImgPath},
-		{prefix + "/pages_meta.img.zstd", pagesMetaImgPath},
-	} {
-		dl := dl
-		g.Go(func() error {
-			if err := ategcs.FetchLocalFileFromGCSWithZstd(gCtx, s.gcsClient, dl.remote, dl.local); err != nil {
-				return fmt.Errorf("while downloading %s from GCS: %w", filepath.Base(dl.remote), err)
-			}
-			return nil
-		})
-	}
-	if err := g.Wait(); err != nil {
-		return nil, err
+	switch req.GetType() {
+	case ateletpb.CheckpointType_CHECKPOINT_TYPE_EXTERNAL:
+		if err := s.downloadExternalCheckpoint(ctx, req.GetExternalConfig().GetSnapshotUriPrefix(), checkpointDir); err != nil {
+			return nil, err
+		}
+	case ateletpb.CheckpointType_CHECKPOINT_TYPE_LOCAL:
+		// TODO(dberkov): the old pause checkpoint files are not deleted after they are copied to checkpointDir. This needs to be fixed in following PR.
+		localCheckpointDir := ateompath.LocalCheckpointsDir(req.GetActorTemplateNamespace(), req.GetActorTemplateName(), req.GetActorId())
+		if err := s.copyLocalCheckpoint(ctx, req.GetLocalConfig().GetSnapshotPrefix(), localCheckpointDir, checkpointDir); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("unexpected checkpoint type: %v", req.GetType())
 	}
 
 	if err := s.prepareOCIBundles(ctx, ns, tmpl, actorID,
@@ -493,6 +525,73 @@ func (s *AteomHerder) Restore(ctx context.Context, req *ateletpb.RestoreRequest)
 	}
 
 	return &ateletpb.RestoreResponse{}, nil
+}
+
+func (s *AteomHerder) copyLocalCheckpoint(ctx context.Context, snapshotPrefix string, srcDir, dstDir string) error {
+	for _, fileName := range []string{"checkpoint.img", "pages.img", "pages_meta.img"} {
+		if ctx.Err() != nil {
+			return fmt.Errorf("context cancelled: %w", ctx.Err())
+		}
+		src := filepath.Join(srcDir, snapshotPrefix, fileName)
+		dst := filepath.Join(dstDir, fileName)
+		if _, err := copyFile(src, dst); err != nil {
+			return fmt.Errorf("failed to copy %s to %s: %w", src, dst, err)
+		}
+	}
+
+	return nil
+}
+
+func copyFile(src, dst string) (int64, error) {
+	sourceFileStat, err := os.Stat(src)
+	if err != nil {
+		return 0, err
+	}
+
+	if !sourceFileStat.Mode().IsRegular() {
+		return 0, fmt.Errorf("%s is not a regular file", src)
+	}
+
+	source, err := os.Open(src)
+	if err != nil {
+		return 0, err
+	}
+	defer source.Close()
+
+	destination, err := os.Create(dst)
+	if err != nil {
+		return 0, err
+	}
+	defer destination.Close()
+	nBytes, err := io.Copy(destination, source)
+	return nBytes, err
+}
+
+func (s *AteomHerder) downloadExternalCheckpoint(ctx context.Context, snapshotUriPrefix string, dstDir string) error {
+	checkpointImgPath := filepath.Join(dstDir, "checkpoint.img")
+	pagesImgPath := filepath.Join(dstDir, "pages.img")
+	pagesMetaImgPath := filepath.Join(dstDir, "pages_meta.img")
+
+	prefix := strings.TrimSuffix(snapshotUriPrefix, "/")
+	g, gCtx := errgroup.WithContext(ctx)
+	for _, dl := range []struct{ remote, local string }{
+		{prefix + "/checkpoint.img.zstd", checkpointImgPath},
+		{prefix + "/pages.img.zstd", pagesImgPath},
+		{prefix + "/pages_meta.img.zstd", pagesMetaImgPath},
+	} {
+		dl := dl
+		g.Go(func() error {
+			if err := ategcs.FetchLocalFileFromGCSWithZstd(gCtx, s.gcsClient, dl.remote, dl.local); err != nil {
+				return fmt.Errorf("while downloading %s from GCS: %w", filepath.Base(dl.remote), err)
+			}
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // fetchRunscAndPrep ensures the static files dir exists and downloads the
@@ -662,8 +761,17 @@ func validateCheckpointRequest(req *ateletpb.CheckpointRequest) error {
 	if err := validateActorRequest(req.GetActorTemplateNamespace(), req.GetActorTemplateName(), req.GetActorId(), req.GetTargetAteomUid(), req.GetSpec()); err != nil {
 		return err
 	}
-	if err := resources.ValidateSnapshotURIPrefix(req.GetSnapshotUriPrefix()); err != nil {
-		return err
+	switch req.GetType() {
+	case ateletpb.CheckpointType_CHECKPOINT_TYPE_EXTERNAL:
+		if err := resources.ValidateSnapshotURIPrefix(req.GetExternalConfig().GetSnapshotUriPrefix()); err != nil {
+			return err
+		}
+	case ateletpb.CheckpointType_CHECKPOINT_TYPE_LOCAL:
+		if req.GetLocalConfig().GetSnapshotPrefix() == "" {
+			return fmt.Errorf("snapshot prefix must be non-empty for type %s", req.GetType().String())
+		}
+	default:
+		return fmt.Errorf("invalid checkpoint type: %v", req.GetType())
 	}
 	return nil
 }
@@ -672,8 +780,17 @@ func validateRestoreRequest(req *ateletpb.RestoreRequest) error {
 	if err := validateActorRequest(req.GetActorTemplateNamespace(), req.GetActorTemplateName(), req.GetActorId(), req.GetTargetAteomUid(), req.GetSpec()); err != nil {
 		return err
 	}
-	if err := resources.ValidateSnapshotURIPrefix(req.GetSnapshotUriPrefix()); err != nil {
-		return err
+	switch req.GetType() {
+	case ateletpb.CheckpointType_CHECKPOINT_TYPE_EXTERNAL:
+		if err := resources.ValidateSnapshotURIPrefix(req.GetExternalConfig().GetSnapshotUriPrefix()); err != nil {
+			return err
+		}
+	case ateletpb.CheckpointType_CHECKPOINT_TYPE_LOCAL:
+		if req.GetLocalConfig().GetSnapshotPrefix() == "" {
+			return fmt.Errorf("snapshot prefix must be non-empty for type %s", req.GetType().String())
+		}
+	default:
+		return fmt.Errorf("invalid checkpoint type: %v", req.GetType())
 	}
 	return nil
 }

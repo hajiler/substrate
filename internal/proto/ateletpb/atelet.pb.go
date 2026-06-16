@@ -35,6 +35,58 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type CheckpointType int32
+
+const (
+	// Should never happen
+	CheckpointType_CHECKPOINT_TYPE_UNSPECIFIED CheckpointType = 0
+	// Save snapshot only in local filesystem
+	CheckpointType_CHECKPOINT_TYPE_LOCAL CheckpointType = 1
+	// Save snapshot to object storage
+	CheckpointType_CHECKPOINT_TYPE_EXTERNAL CheckpointType = 2
+)
+
+// Enum value maps for CheckpointType.
+var (
+	CheckpointType_name = map[int32]string{
+		0: "CHECKPOINT_TYPE_UNSPECIFIED",
+		1: "CHECKPOINT_TYPE_LOCAL",
+		2: "CHECKPOINT_TYPE_EXTERNAL",
+	}
+	CheckpointType_value = map[string]int32{
+		"CHECKPOINT_TYPE_UNSPECIFIED": 0,
+		"CHECKPOINT_TYPE_LOCAL":       1,
+		"CHECKPOINT_TYPE_EXTERNAL":    2,
+	}
+)
+
+func (x CheckpointType) Enum() *CheckpointType {
+	p := new(CheckpointType)
+	*p = x
+	return p
+}
+
+func (x CheckpointType) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (CheckpointType) Descriptor() protoreflect.EnumDescriptor {
+	return file_atelet_proto_enumTypes[0].Descriptor()
+}
+
+func (CheckpointType) Type() protoreflect.EnumType {
+	return &file_atelet_proto_enumTypes[0]
+}
+
+func (x CheckpointType) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use CheckpointType.Descriptor instead.
+func (CheckpointType) EnumDescriptor() ([]byte, []int) {
+	return file_atelet_proto_rawDescGZIP(), []int{0}
+}
+
 type RunRequest struct {
 	state                  protoimpl.MessageState `protogen:"open.v1"`
 	TargetAteomUid         string                 `protobuf:"bytes,1,opt,name=target_ateom_uid,json=targetAteomUid,proto3" json:"target_ateom_uid,omitempty"`
@@ -532,14 +584,54 @@ func (*RunResponse) Descriptor() ([]byte, []int) {
 	return file_atelet_proto_rawDescGZIP(), []int{8}
 }
 
-type CheckpointRequest struct {
-	state                  protoimpl.MessageState `protogen:"open.v1"`
-	TargetAteomUid         string                 `protobuf:"bytes,1,opt,name=target_ateom_uid,json=targetAteomUid,proto3" json:"target_ateom_uid,omitempty"`
-	ActorTemplateNamespace string                 `protobuf:"bytes,3,opt,name=actor_template_namespace,json=actorTemplateNamespace,proto3" json:"actor_template_namespace,omitempty"`
-	ActorTemplateName      string                 `protobuf:"bytes,4,opt,name=actor_template_name,json=actorTemplateName,proto3" json:"actor_template_name,omitempty"`
-	ActorId                string                 `protobuf:"bytes,5,opt,name=actor_id,json=actorId,proto3" json:"actor_id,omitempty"`
-	Runsc                  *RunscConfig           `protobuf:"bytes,6,opt,name=runsc,proto3" json:"runsc,omitempty"`
-	Spec                   *WorkloadSpec          `protobuf:"bytes,7,opt,name=spec,proto3" json:"spec,omitempty"`
+type LocalCheckpointConfiguration struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// A sub-directory on the local filesystem below which the checkpoint data will be
+	// stored.  The structure of the checkpoint should generally be treated as opaque.
+	SnapshotPrefix string `protobuf:"bytes,1,opt,name=snapshot_prefix,json=snapshotPrefix,proto3" json:"snapshot_prefix,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *LocalCheckpointConfiguration) Reset() {
+	*x = LocalCheckpointConfiguration{}
+	mi := &file_atelet_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LocalCheckpointConfiguration) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LocalCheckpointConfiguration) ProtoMessage() {}
+
+func (x *LocalCheckpointConfiguration) ProtoReflect() protoreflect.Message {
+	mi := &file_atelet_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LocalCheckpointConfiguration.ProtoReflect.Descriptor instead.
+func (*LocalCheckpointConfiguration) Descriptor() ([]byte, []int) {
+	return file_atelet_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *LocalCheckpointConfiguration) GetSnapshotPrefix() string {
+	if x != nil {
+		return x.SnapshotPrefix
+	}
+	return ""
+}
+
+type ExternalCheckpointConfiguration struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
 	// An object storage URI prefix below which the checkpoint data will be
 	// stored.
 	//
@@ -550,14 +642,71 @@ type CheckpointRequest struct {
 	// can restore a checkpoint.
 	//
 	// For example: "gs://bucket/actors/1234/snapshots/5678/"
-	SnapshotUriPrefix string `protobuf:"bytes,8,opt,name=snapshot_uri_prefix,json=snapshotUriPrefix,proto3" json:"snapshot_uri_prefix,omitempty"`
+	SnapshotUriPrefix string `protobuf:"bytes,1,opt,name=snapshot_uri_prefix,json=snapshotUriPrefix,proto3" json:"snapshot_uri_prefix,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
 
+func (x *ExternalCheckpointConfiguration) Reset() {
+	*x = ExternalCheckpointConfiguration{}
+	mi := &file_atelet_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExternalCheckpointConfiguration) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExternalCheckpointConfiguration) ProtoMessage() {}
+
+func (x *ExternalCheckpointConfiguration) ProtoReflect() protoreflect.Message {
+	mi := &file_atelet_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExternalCheckpointConfiguration.ProtoReflect.Descriptor instead.
+func (*ExternalCheckpointConfiguration) Descriptor() ([]byte, []int) {
+	return file_atelet_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *ExternalCheckpointConfiguration) GetSnapshotUriPrefix() string {
+	if x != nil {
+		return x.SnapshotUriPrefix
+	}
+	return ""
+}
+
+type CheckpointRequest struct {
+	state                  protoimpl.MessageState `protogen:"open.v1"`
+	TargetAteomUid         string                 `protobuf:"bytes,1,opt,name=target_ateom_uid,json=targetAteomUid,proto3" json:"target_ateom_uid,omitempty"`
+	ActorTemplateNamespace string                 `protobuf:"bytes,3,opt,name=actor_template_namespace,json=actorTemplateNamespace,proto3" json:"actor_template_namespace,omitempty"`
+	ActorTemplateName      string                 `protobuf:"bytes,4,opt,name=actor_template_name,json=actorTemplateName,proto3" json:"actor_template_name,omitempty"`
+	ActorId                string                 `protobuf:"bytes,5,opt,name=actor_id,json=actorId,proto3" json:"actor_id,omitempty"`
+	Runsc                  *RunscConfig           `protobuf:"bytes,6,opt,name=runsc,proto3" json:"runsc,omitempty"`
+	Spec                   *WorkloadSpec          `protobuf:"bytes,7,opt,name=spec,proto3" json:"spec,omitempty"`
+	Type                   CheckpointType         `protobuf:"varint,9,opt,name=type,proto3,enum=atelet.CheckpointType" json:"type,omitempty"`
+	// The checkpoint configuration, depending on the type.
+	//
+	// Types that are valid to be assigned to Config:
+	//
+	//	*CheckpointRequest_LocalConfig
+	//	*CheckpointRequest_ExternalConfig
+	Config        isCheckpointRequest_Config `protobuf_oneof:"config"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
 func (x *CheckpointRequest) Reset() {
 	*x = CheckpointRequest{}
-	mi := &file_atelet_proto_msgTypes[9]
+	mi := &file_atelet_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -569,7 +718,7 @@ func (x *CheckpointRequest) String() string {
 func (*CheckpointRequest) ProtoMessage() {}
 
 func (x *CheckpointRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_atelet_proto_msgTypes[9]
+	mi := &file_atelet_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -582,7 +731,7 @@ func (x *CheckpointRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckpointRequest.ProtoReflect.Descriptor instead.
 func (*CheckpointRequest) Descriptor() ([]byte, []int) {
-	return file_atelet_proto_rawDescGZIP(), []int{9}
+	return file_atelet_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *CheckpointRequest) GetTargetAteomUid() string {
@@ -627,12 +776,53 @@ func (x *CheckpointRequest) GetSpec() *WorkloadSpec {
 	return nil
 }
 
-func (x *CheckpointRequest) GetSnapshotUriPrefix() string {
+func (x *CheckpointRequest) GetType() CheckpointType {
 	if x != nil {
-		return x.SnapshotUriPrefix
+		return x.Type
 	}
-	return ""
+	return CheckpointType_CHECKPOINT_TYPE_UNSPECIFIED
 }
+
+func (x *CheckpointRequest) GetConfig() isCheckpointRequest_Config {
+	if x != nil {
+		return x.Config
+	}
+	return nil
+}
+
+func (x *CheckpointRequest) GetLocalConfig() *LocalCheckpointConfiguration {
+	if x != nil {
+		if x, ok := x.Config.(*CheckpointRequest_LocalConfig); ok {
+			return x.LocalConfig
+		}
+	}
+	return nil
+}
+
+func (x *CheckpointRequest) GetExternalConfig() *ExternalCheckpointConfiguration {
+	if x != nil {
+		if x, ok := x.Config.(*CheckpointRequest_ExternalConfig); ok {
+			return x.ExternalConfig
+		}
+	}
+	return nil
+}
+
+type isCheckpointRequest_Config interface {
+	isCheckpointRequest_Config()
+}
+
+type CheckpointRequest_LocalConfig struct {
+	LocalConfig *LocalCheckpointConfiguration `protobuf:"bytes,10,opt,name=local_config,json=localConfig,proto3,oneof"`
+}
+
+type CheckpointRequest_ExternalConfig struct {
+	ExternalConfig *ExternalCheckpointConfiguration `protobuf:"bytes,11,opt,name=external_config,json=externalConfig,proto3,oneof"`
+}
+
+func (*CheckpointRequest_LocalConfig) isCheckpointRequest_Config() {}
+
+func (*CheckpointRequest_ExternalConfig) isCheckpointRequest_Config() {}
 
 type CheckpointResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -642,7 +832,7 @@ type CheckpointResponse struct {
 
 func (x *CheckpointResponse) Reset() {
 	*x = CheckpointResponse{}
-	mi := &file_atelet_proto_msgTypes[10]
+	mi := &file_atelet_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -654,7 +844,7 @@ func (x *CheckpointResponse) String() string {
 func (*CheckpointResponse) ProtoMessage() {}
 
 func (x *CheckpointResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_atelet_proto_msgTypes[10]
+	mi := &file_atelet_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -667,7 +857,7 @@ func (x *CheckpointResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckpointResponse.ProtoReflect.Descriptor instead.
 func (*CheckpointResponse) Descriptor() ([]byte, []int) {
-	return file_atelet_proto_rawDescGZIP(), []int{10}
+	return file_atelet_proto_rawDescGZIP(), []int{12}
 }
 
 type RestoreRequest struct {
@@ -678,15 +868,21 @@ type RestoreRequest struct {
 	ActorId                string                 `protobuf:"bytes,5,opt,name=actor_id,json=actorId,proto3" json:"actor_id,omitempty"`
 	Runsc                  *RunscConfig           `protobuf:"bytes,6,opt,name=runsc,proto3" json:"runsc,omitempty"`
 	Spec                   *WorkloadSpec          `protobuf:"bytes,7,opt,name=spec,proto3" json:"spec,omitempty"`
-	// The object storage URI prefix of the snapshot to restore.
-	SnapshotUriPrefix string `protobuf:"bytes,8,opt,name=snapshot_uri_prefix,json=snapshotUriPrefix,proto3" json:"snapshot_uri_prefix,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	Type                   CheckpointType         `protobuf:"varint,9,opt,name=type,proto3,enum=atelet.CheckpointType" json:"type,omitempty"`
+	// The checkpoint configuration, depending on the type.
+	//
+	// Types that are valid to be assigned to Config:
+	//
+	//	*RestoreRequest_LocalConfig
+	//	*RestoreRequest_ExternalConfig
+	Config        isRestoreRequest_Config `protobuf_oneof:"config"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RestoreRequest) Reset() {
 	*x = RestoreRequest{}
-	mi := &file_atelet_proto_msgTypes[11]
+	mi := &file_atelet_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -698,7 +894,7 @@ func (x *RestoreRequest) String() string {
 func (*RestoreRequest) ProtoMessage() {}
 
 func (x *RestoreRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_atelet_proto_msgTypes[11]
+	mi := &file_atelet_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -711,7 +907,7 @@ func (x *RestoreRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RestoreRequest.ProtoReflect.Descriptor instead.
 func (*RestoreRequest) Descriptor() ([]byte, []int) {
-	return file_atelet_proto_rawDescGZIP(), []int{11}
+	return file_atelet_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *RestoreRequest) GetTargetAteomUid() string {
@@ -756,12 +952,53 @@ func (x *RestoreRequest) GetSpec() *WorkloadSpec {
 	return nil
 }
 
-func (x *RestoreRequest) GetSnapshotUriPrefix() string {
+func (x *RestoreRequest) GetType() CheckpointType {
 	if x != nil {
-		return x.SnapshotUriPrefix
+		return x.Type
 	}
-	return ""
+	return CheckpointType_CHECKPOINT_TYPE_UNSPECIFIED
 }
+
+func (x *RestoreRequest) GetConfig() isRestoreRequest_Config {
+	if x != nil {
+		return x.Config
+	}
+	return nil
+}
+
+func (x *RestoreRequest) GetLocalConfig() *LocalCheckpointConfiguration {
+	if x != nil {
+		if x, ok := x.Config.(*RestoreRequest_LocalConfig); ok {
+			return x.LocalConfig
+		}
+	}
+	return nil
+}
+
+func (x *RestoreRequest) GetExternalConfig() *ExternalCheckpointConfiguration {
+	if x != nil {
+		if x, ok := x.Config.(*RestoreRequest_ExternalConfig); ok {
+			return x.ExternalConfig
+		}
+	}
+	return nil
+}
+
+type isRestoreRequest_Config interface {
+	isRestoreRequest_Config()
+}
+
+type RestoreRequest_LocalConfig struct {
+	LocalConfig *LocalCheckpointConfiguration `protobuf:"bytes,10,opt,name=local_config,json=localConfig,proto3,oneof"`
+}
+
+type RestoreRequest_ExternalConfig struct {
+	ExternalConfig *ExternalCheckpointConfiguration `protobuf:"bytes,11,opt,name=external_config,json=externalConfig,proto3,oneof"`
+}
+
+func (*RestoreRequest_LocalConfig) isRestoreRequest_Config() {}
+
+func (*RestoreRequest_ExternalConfig) isRestoreRequest_Config() {}
 
 type RestoreResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -771,7 +1008,7 @@ type RestoreResponse struct {
 
 func (x *RestoreResponse) Reset() {
 	*x = RestoreResponse{}
-	mi := &file_atelet_proto_msgTypes[12]
+	mi := &file_atelet_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -783,7 +1020,7 @@ func (x *RestoreResponse) String() string {
 func (*RestoreResponse) ProtoMessage() {}
 
 func (x *RestoreResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_atelet_proto_msgTypes[12]
+	mi := &file_atelet_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -796,7 +1033,7 @@ func (x *RestoreResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RestoreResponse.ProtoReflect.Descriptor instead.
 func (*RestoreResponse) Descriptor() ([]byte, []int) {
-	return file_atelet_proto_rawDescGZIP(), []int{12}
+	return file_atelet_proto_rawDescGZIP(), []int{14}
 }
 
 var File_atelet_proto protoreflect.FileDescriptor
@@ -838,25 +1075,41 @@ const file_atelet_proto_rawDesc = "" +
 	"\bEnvEntry\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value\"\r\n" +
-	"\vRunResponse\"\xc7\x02\n" +
+	"\vRunResponse\"G\n" +
+	"\x1cLocalCheckpointConfiguration\x12'\n" +
+	"\x0fsnapshot_prefix\x18\x01 \x01(\tR\x0esnapshotPrefix\"Q\n" +
+	"\x1fExternalCheckpointConfiguration\x12.\n" +
+	"\x13snapshot_uri_prefix\x18\x01 \x01(\tR\x11snapshotUriPrefix\"\xf2\x03\n" +
 	"\x11CheckpointRequest\x12(\n" +
 	"\x10target_ateom_uid\x18\x01 \x01(\tR\x0etargetAteomUid\x128\n" +
 	"\x18actor_template_namespace\x18\x03 \x01(\tR\x16actorTemplateNamespace\x12.\n" +
 	"\x13actor_template_name\x18\x04 \x01(\tR\x11actorTemplateName\x12\x19\n" +
 	"\bactor_id\x18\x05 \x01(\tR\aactorId\x12)\n" +
 	"\x05runsc\x18\x06 \x01(\v2\x13.atelet.RunscConfigR\x05runsc\x12(\n" +
-	"\x04spec\x18\a \x01(\v2\x14.atelet.WorkloadSpecR\x04spec\x12.\n" +
-	"\x13snapshot_uri_prefix\x18\b \x01(\tR\x11snapshotUriPrefix\"\x14\n" +
-	"\x12CheckpointResponse\"\xc4\x02\n" +
+	"\x04spec\x18\a \x01(\v2\x14.atelet.WorkloadSpecR\x04spec\x12*\n" +
+	"\x04type\x18\t \x01(\x0e2\x16.atelet.CheckpointTypeR\x04type\x12I\n" +
+	"\flocal_config\x18\n" +
+	" \x01(\v2$.atelet.LocalCheckpointConfigurationH\x00R\vlocalConfig\x12R\n" +
+	"\x0fexternal_config\x18\v \x01(\v2'.atelet.ExternalCheckpointConfigurationH\x00R\x0eexternalConfigB\b\n" +
+	"\x06configJ\x04\b\b\x10\t\"\x14\n" +
+	"\x12CheckpointResponse\"\xef\x03\n" +
 	"\x0eRestoreRequest\x12(\n" +
 	"\x10target_ateom_uid\x18\x01 \x01(\tR\x0etargetAteomUid\x128\n" +
 	"\x18actor_template_namespace\x18\x03 \x01(\tR\x16actorTemplateNamespace\x12.\n" +
 	"\x13actor_template_name\x18\x04 \x01(\tR\x11actorTemplateName\x12\x19\n" +
 	"\bactor_id\x18\x05 \x01(\tR\aactorId\x12)\n" +
 	"\x05runsc\x18\x06 \x01(\v2\x13.atelet.RunscConfigR\x05runsc\x12(\n" +
-	"\x04spec\x18\a \x01(\v2\x14.atelet.WorkloadSpecR\x04spec\x12.\n" +
-	"\x13snapshot_uri_prefix\x18\b \x01(\tR\x11snapshotUriPrefix\"\x11\n" +
-	"\x0fRestoreResponse2\xc4\x01\n" +
+	"\x04spec\x18\a \x01(\v2\x14.atelet.WorkloadSpecR\x04spec\x12*\n" +
+	"\x04type\x18\t \x01(\x0e2\x16.atelet.CheckpointTypeR\x04type\x12I\n" +
+	"\flocal_config\x18\n" +
+	" \x01(\v2$.atelet.LocalCheckpointConfigurationH\x00R\vlocalConfig\x12R\n" +
+	"\x0fexternal_config\x18\v \x01(\v2'.atelet.ExternalCheckpointConfigurationH\x00R\x0eexternalConfigB\b\n" +
+	"\x06configJ\x04\b\b\x10\t\"\x11\n" +
+	"\x0fRestoreResponse*j\n" +
+	"\x0eCheckpointType\x12\x1f\n" +
+	"\x1bCHECKPOINT_TYPE_UNSPECIFIED\x10\x00\x12\x19\n" +
+	"\x15CHECKPOINT_TYPE_LOCAL\x10\x01\x12\x1c\n" +
+	"\x18CHECKPOINT_TYPE_EXTERNAL\x10\x022\xc4\x01\n" +
 	"\vAteomHerder\x120\n" +
 	"\x03Run\x12\x12.atelet.RunRequest\x1a\x13.atelet.RunResponse\"\x00\x12E\n" +
 	"\n" +
@@ -875,46 +1128,56 @@ func file_atelet_proto_rawDescGZIP() []byte {
 	return file_atelet_proto_rawDescData
 }
 
-var file_atelet_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_atelet_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_atelet_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_atelet_proto_goTypes = []any{
-	(*RunRequest)(nil),              // 0: atelet.RunRequest
-	(*GCPAuthenticationConfig)(nil), // 1: atelet.GCPAuthenticationConfig
-	(*AuthenticationConfig)(nil),    // 2: atelet.AuthenticationConfig
-	(*RunscPlatformConfig)(nil),     // 3: atelet.RunscPlatformConfig
-	(*RunscConfig)(nil),             // 4: atelet.RunscConfig
-	(*WorkloadSpec)(nil),            // 5: atelet.WorkloadSpec
-	(*Container)(nil),               // 6: atelet.Container
-	(*EnvEntry)(nil),                // 7: atelet.EnvEntry
-	(*RunResponse)(nil),             // 8: atelet.RunResponse
-	(*CheckpointRequest)(nil),       // 9: atelet.CheckpointRequest
-	(*CheckpointResponse)(nil),      // 10: atelet.CheckpointResponse
-	(*RestoreRequest)(nil),          // 11: atelet.RestoreRequest
-	(*RestoreResponse)(nil),         // 12: atelet.RestoreResponse
+	(CheckpointType)(0),                     // 0: atelet.CheckpointType
+	(*RunRequest)(nil),                      // 1: atelet.RunRequest
+	(*GCPAuthenticationConfig)(nil),         // 2: atelet.GCPAuthenticationConfig
+	(*AuthenticationConfig)(nil),            // 3: atelet.AuthenticationConfig
+	(*RunscPlatformConfig)(nil),             // 4: atelet.RunscPlatformConfig
+	(*RunscConfig)(nil),                     // 5: atelet.RunscConfig
+	(*WorkloadSpec)(nil),                    // 6: atelet.WorkloadSpec
+	(*Container)(nil),                       // 7: atelet.Container
+	(*EnvEntry)(nil),                        // 8: atelet.EnvEntry
+	(*RunResponse)(nil),                     // 9: atelet.RunResponse
+	(*LocalCheckpointConfiguration)(nil),    // 10: atelet.LocalCheckpointConfiguration
+	(*ExternalCheckpointConfiguration)(nil), // 11: atelet.ExternalCheckpointConfiguration
+	(*CheckpointRequest)(nil),               // 12: atelet.CheckpointRequest
+	(*CheckpointResponse)(nil),              // 13: atelet.CheckpointResponse
+	(*RestoreRequest)(nil),                  // 14: atelet.RestoreRequest
+	(*RestoreResponse)(nil),                 // 15: atelet.RestoreResponse
 }
 var file_atelet_proto_depIdxs = []int32{
-	4,  // 0: atelet.RunRequest.runsc:type_name -> atelet.RunscConfig
-	5,  // 1: atelet.RunRequest.spec:type_name -> atelet.WorkloadSpec
-	1,  // 2: atelet.AuthenticationConfig.gcp:type_name -> atelet.GCPAuthenticationConfig
-	3,  // 3: atelet.RunscConfig.amd64:type_name -> atelet.RunscPlatformConfig
-	3,  // 4: atelet.RunscConfig.arm64:type_name -> atelet.RunscPlatformConfig
-	2,  // 5: atelet.RunscConfig.authentication:type_name -> atelet.AuthenticationConfig
-	6,  // 6: atelet.WorkloadSpec.containers:type_name -> atelet.Container
-	7,  // 7: atelet.Container.env:type_name -> atelet.EnvEntry
-	4,  // 8: atelet.CheckpointRequest.runsc:type_name -> atelet.RunscConfig
-	5,  // 9: atelet.CheckpointRequest.spec:type_name -> atelet.WorkloadSpec
-	4,  // 10: atelet.RestoreRequest.runsc:type_name -> atelet.RunscConfig
-	5,  // 11: atelet.RestoreRequest.spec:type_name -> atelet.WorkloadSpec
-	0,  // 12: atelet.AteomHerder.Run:input_type -> atelet.RunRequest
-	9,  // 13: atelet.AteomHerder.Checkpoint:input_type -> atelet.CheckpointRequest
-	11, // 14: atelet.AteomHerder.Restore:input_type -> atelet.RestoreRequest
-	8,  // 15: atelet.AteomHerder.Run:output_type -> atelet.RunResponse
-	10, // 16: atelet.AteomHerder.Checkpoint:output_type -> atelet.CheckpointResponse
-	12, // 17: atelet.AteomHerder.Restore:output_type -> atelet.RestoreResponse
-	15, // [15:18] is the sub-list for method output_type
-	12, // [12:15] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	5,  // 0: atelet.RunRequest.runsc:type_name -> atelet.RunscConfig
+	6,  // 1: atelet.RunRequest.spec:type_name -> atelet.WorkloadSpec
+	2,  // 2: atelet.AuthenticationConfig.gcp:type_name -> atelet.GCPAuthenticationConfig
+	4,  // 3: atelet.RunscConfig.amd64:type_name -> atelet.RunscPlatformConfig
+	4,  // 4: atelet.RunscConfig.arm64:type_name -> atelet.RunscPlatformConfig
+	3,  // 5: atelet.RunscConfig.authentication:type_name -> atelet.AuthenticationConfig
+	7,  // 6: atelet.WorkloadSpec.containers:type_name -> atelet.Container
+	8,  // 7: atelet.Container.env:type_name -> atelet.EnvEntry
+	5,  // 8: atelet.CheckpointRequest.runsc:type_name -> atelet.RunscConfig
+	6,  // 9: atelet.CheckpointRequest.spec:type_name -> atelet.WorkloadSpec
+	0,  // 10: atelet.CheckpointRequest.type:type_name -> atelet.CheckpointType
+	10, // 11: atelet.CheckpointRequest.local_config:type_name -> atelet.LocalCheckpointConfiguration
+	11, // 12: atelet.CheckpointRequest.external_config:type_name -> atelet.ExternalCheckpointConfiguration
+	5,  // 13: atelet.RestoreRequest.runsc:type_name -> atelet.RunscConfig
+	6,  // 14: atelet.RestoreRequest.spec:type_name -> atelet.WorkloadSpec
+	0,  // 15: atelet.RestoreRequest.type:type_name -> atelet.CheckpointType
+	10, // 16: atelet.RestoreRequest.local_config:type_name -> atelet.LocalCheckpointConfiguration
+	11, // 17: atelet.RestoreRequest.external_config:type_name -> atelet.ExternalCheckpointConfiguration
+	1,  // 18: atelet.AteomHerder.Run:input_type -> atelet.RunRequest
+	12, // 19: atelet.AteomHerder.Checkpoint:input_type -> atelet.CheckpointRequest
+	14, // 20: atelet.AteomHerder.Restore:input_type -> atelet.RestoreRequest
+	9,  // 21: atelet.AteomHerder.Run:output_type -> atelet.RunResponse
+	13, // 22: atelet.AteomHerder.Checkpoint:output_type -> atelet.CheckpointResponse
+	15, // 23: atelet.AteomHerder.Restore:output_type -> atelet.RestoreResponse
+	21, // [21:24] is the sub-list for method output_type
+	18, // [18:21] is the sub-list for method input_type
+	18, // [18:18] is the sub-list for extension type_name
+	18, // [18:18] is the sub-list for extension extendee
+	0,  // [0:18] is the sub-list for field type_name
 }
 
 func init() { file_atelet_proto_init() }
@@ -922,18 +1185,27 @@ func file_atelet_proto_init() {
 	if File_atelet_proto != nil {
 		return
 	}
+	file_atelet_proto_msgTypes[11].OneofWrappers = []any{
+		(*CheckpointRequest_LocalConfig)(nil),
+		(*CheckpointRequest_ExternalConfig)(nil),
+	}
+	file_atelet_proto_msgTypes[13].OneofWrappers = []any{
+		(*RestoreRequest_LocalConfig)(nil),
+		(*RestoreRequest_ExternalConfig)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_atelet_proto_rawDesc), len(file_atelet_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   13,
+			NumEnums:      1,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_atelet_proto_goTypes,
 		DependencyIndexes: file_atelet_proto_depIdxs,
+		EnumInfos:         file_atelet_proto_enumTypes,
 		MessageInfos:      file_atelet_proto_msgTypes,
 	}.Build()
 	File_atelet_proto = out.File

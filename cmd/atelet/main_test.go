@@ -120,7 +120,12 @@ func validCheckpointRequest() *ateletpb.CheckpointRequest {
 		ActorId:                "counter-1",
 		TargetAteomUid:         "422938ba-8860-4983-a25d-d6bcb0a69d4e",
 		Spec:                   &ateletpb.WorkloadSpec{Containers: []*ateletpb.Container{{Name: "worker"}}},
-		SnapshotUriPrefix:      "gs://bucket/actors/1/snapshots/2/",
+		Type:                   ateletpb.CheckpointType_CHECKPOINT_TYPE_EXTERNAL,
+		Config: &ateletpb.CheckpointRequest_ExternalConfig{
+			ExternalConfig: &ateletpb.ExternalCheckpointConfiguration{
+				SnapshotUriPrefix: "gs://bucket/actors/1/snapshots/2/",
+			},
+		},
 	}
 }
 
@@ -131,7 +136,12 @@ func validRestoreRequest() *ateletpb.RestoreRequest {
 		ActorId:                "counter-1",
 		TargetAteomUid:         "422938ba-8860-4983-a25d-d6bcb0a69d4e",
 		Spec:                   &ateletpb.WorkloadSpec{Containers: []*ateletpb.Container{{Name: "worker"}}},
-		SnapshotUriPrefix:      "gs://bucket/actors/1/snapshots/2/",
+		Type:                   ateletpb.CheckpointType_CHECKPOINT_TYPE_EXTERNAL,
+		Config: &ateletpb.RestoreRequest_ExternalConfig{
+			ExternalConfig: &ateletpb.ExternalCheckpointConfiguration{
+				SnapshotUriPrefix: "gs://bucket/actors/1/snapshots/2/",
+			},
+		},
 	}
 }
 
@@ -159,21 +169,32 @@ func TestValidateRunRequest(t *testing.T) {
 // Checkpoint and Restore must reject a bad snapshot URI prefix even when
 // every common field is valid.
 func TestValidateCheckpointRequest(t *testing.T) {
+	makeReq := func(opts ...func(*ateletpb.CheckpointRequest)) *ateletpb.CheckpointRequest {
+		r := validCheckpointRequest()
+		for _, opt := range opts {
+			opt(r)
+		}
+		return r
+	}
+
 	tests := []struct {
 		name    string
-		mutate  func(*ateletpb.CheckpointRequest)
+		req     *ateletpb.CheckpointRequest
 		wantErr bool
 	}{
-		{"valid", func(*ateletpb.CheckpointRequest) {}, false},
-		{"empty snapshot uri", func(r *ateletpb.CheckpointRequest) { r.SnapshotUriPrefix = "" }, true},
-		{"bucketless snapshot uri", func(r *ateletpb.CheckpointRequest) { r.SnapshotUriPrefix = "relative/path" }, true},
-		{"invalid ateom uid", func(r *ateletpb.CheckpointRequest) { r.TargetAteomUid = "../escape" }, true},
+		{"valid", makeReq(), false},
+		{"empty snapshot uri", makeReq(func(r *ateletpb.CheckpointRequest) { r.GetExternalConfig().SnapshotUriPrefix = "" }), true},
+		{"bucketless snapshot uri", makeReq(func(r *ateletpb.CheckpointRequest) { r.GetExternalConfig().SnapshotUriPrefix = "relative/path" }), true},
+		{"invalid ateom uid", makeReq(func(r *ateletpb.CheckpointRequest) { r.TargetAteomUid = "../escape" }), true},
+		{"invalid local snapshot prefix", makeReq(func(r *ateletpb.CheckpointRequest) {
+			r.Type = ateletpb.CheckpointType_CHECKPOINT_TYPE_LOCAL
+			r.Config = &ateletpb.CheckpointRequest_LocalConfig{LocalConfig: &ateletpb.LocalCheckpointConfiguration{SnapshotPrefix: ""}}
+		}), true},
+		{"unspecified snapshot type", makeReq(func(r *ateletpb.CheckpointRequest) { r.Type = ateletpb.CheckpointType_CHECKPOINT_TYPE_UNSPECIFIED }), true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			req := validCheckpointRequest()
-			tc.mutate(req)
-			if err := validateCheckpointRequest(req); (err != nil) != tc.wantErr {
+			if err := validateCheckpointRequest(tc.req); (err != nil) != tc.wantErr {
 				t.Errorf("validateCheckpointRequest err = %v, wantErr %v", err, tc.wantErr)
 			}
 		})
@@ -181,21 +202,32 @@ func TestValidateCheckpointRequest(t *testing.T) {
 }
 
 func TestValidateRestoreRequest(t *testing.T) {
+	makeReq := func(opts ...func(*ateletpb.RestoreRequest)) *ateletpb.RestoreRequest {
+		r := validRestoreRequest()
+		for _, opt := range opts {
+			opt(r)
+		}
+		return r
+	}
+
 	tests := []struct {
 		name    string
-		mutate  func(*ateletpb.RestoreRequest)
+		req     *ateletpb.RestoreRequest
 		wantErr bool
 	}{
-		{"valid", func(*ateletpb.RestoreRequest) {}, false},
-		{"empty snapshot uri", func(r *ateletpb.RestoreRequest) { r.SnapshotUriPrefix = "" }, true},
-		{"bucketless snapshot uri", func(r *ateletpb.RestoreRequest) { r.SnapshotUriPrefix = "relative/path" }, true},
-		{"invalid ateom uid", func(r *ateletpb.RestoreRequest) { r.TargetAteomUid = "../escape" }, true},
+		{"valid", makeReq(), false},
+		{"empty snapshot uri", makeReq(func(r *ateletpb.RestoreRequest) { r.GetExternalConfig().SnapshotUriPrefix = "" }), true},
+		{"bucketless snapshot uri", makeReq(func(r *ateletpb.RestoreRequest) { r.GetExternalConfig().SnapshotUriPrefix = "relative/path" }), true},
+		{"invalid ateom uid", makeReq(func(r *ateletpb.RestoreRequest) { r.TargetAteomUid = "../escape" }), true},
+		{"invalid local snapshot prefix", makeReq(func(r *ateletpb.RestoreRequest) {
+			r.Type = ateletpb.CheckpointType_CHECKPOINT_TYPE_LOCAL
+			r.Config = &ateletpb.RestoreRequest_LocalConfig{LocalConfig: &ateletpb.LocalCheckpointConfiguration{SnapshotPrefix: ""}}
+		}), true},
+		{"unspecified snapshot type", makeReq(func(r *ateletpb.RestoreRequest) { r.Type = ateletpb.CheckpointType_CHECKPOINT_TYPE_UNSPECIFIED }), true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			req := validRestoreRequest()
-			tc.mutate(req)
-			if err := validateRestoreRequest(req); (err != nil) != tc.wantErr {
+			if err := validateRestoreRequest(tc.req); (err != nil) != tc.wantErr {
 				t.Errorf("validateRestoreRequest err = %v, wantErr %v", err, tc.wantErr)
 			}
 		})

@@ -90,6 +90,35 @@ message EnvEntry {
 message RunResponse {
 }
 
+message LocalCheckpointConfiguration {
+  // A sub-directory on the local filesystem below which the checkpoint data will be
+  // stored.  The structure of the checkpoint should generally be treated as opaque.
+  string snapshot_prefix = 1;
+}
+
+message ExternalCheckpointConfiguration {
+  // An object storage URI prefix below which the checkpoint data will be
+  // stored.
+  //
+  // The structure of the checkpoint should generally be treated as opaque. For
+  // gVisor, the checkpoint consists of a checkpoint.img file that contains the
+  // memory, sentry state, and filesystem deltas.  ateom will write additional
+  // files to store the WorkloadSpec, which must be reassembled before gVisor
+  // can restore a checkpoint.
+  //
+  // For example: "gs://bucket/actors/1234/snapshots/5678/"
+  string snapshot_uri_prefix = 1;
+}
+
+enum CheckpointType {
+  // Should never happen
+  CHECKPOINT_TYPE_UNSPECIFIED = 0;
+  // Save snapshot only in local filesystem
+  CHECKPOINT_TYPE_LOCAL  = 1;
+  // Save snapshot to object storage
+  CHECKPOINT_TYPE_EXTERNAL = 2;
+}
+
 message CheckpointRequest {
   string target_ateom_uid = 1;
 
@@ -101,17 +130,16 @@ message CheckpointRequest {
 
   WorkloadSpec spec = 7;
 
-  // An object storage URI prefix below which the checkpoint data will be
-  // stored.
-  //
-  // The structure of the checkpoint should generally be treated as opaque. For
-  // gVisor, the checkpoint consists of a checkpoint.img file that contains the
-  // memory, sentry state, and filesystem deltas.  ateom will write additional
-  // files to store the WorkloadSpec, which must be reassembled before gVisor
-  // can restore a checkpoint.
-  //
-  // For example: "gs://bucket/actors/1234/snapshots/5678/"
-  string snapshot_uri_prefix = 8;
+  // deprecated snapshot_uri_prefix
+  reserved 8;
+
+  CheckpointType type = 9;
+
+  // The checkpoint configuration, depending on the type.
+  oneof config {
+    LocalCheckpointConfiguration local_config    = 10;
+    ExternalCheckpointConfiguration external_config = 11;
+  }
 }
 
 message CheckpointResponse {
@@ -129,8 +157,16 @@ message RestoreRequest {
 
   WorkloadSpec spec = 7;
 
-  // The object storage URI prefix of the snapshot to restore.
-  string snapshot_uri_prefix = 8;
+  // deprecated snapshot_uri_prefix
+  reserved 8;
+
+  CheckpointType type = 9;
+
+  // The checkpoint configuration, depending on the type.
+  oneof config {
+    LocalCheckpointConfiguration local_config    = 10;
+    ExternalCheckpointConfiguration external_config = 11;
+  }
 }
 
 message RestoreResponse {

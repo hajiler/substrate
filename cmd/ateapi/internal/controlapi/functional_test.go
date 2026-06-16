@@ -17,6 +17,7 @@ package controlapi
 import (
 	"context"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"os/exec"
@@ -60,9 +61,11 @@ var (
 
 func TestMain(m *testing.M) {
 	cmd := exec.Command("bash", "../../../../hack/run-tool.sh", "setup-envtest", "use", "--print", "path")
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		os.Exit(1)
+		log.Fatalf("setup-envtest: %v (stderr: %s)", err, stderr.String())
 	}
 	binaryAssetsDirectory := strings.TrimSpace(string(out))
 
@@ -73,19 +76,19 @@ func TestMain(m *testing.M) {
 
 	cfg, err = testEnv.Start()
 	if err != nil {
-		os.Exit(1)
+		log.Fatalf("testEnv.Start: %v", err)
 	}
 
 	// Create ate-system namespace
 	k8sClient, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
-		os.Exit(1)
+		log.Fatalf("kubernetes.NewForConfig: %v", err)
 	}
 	_, err = k8sClient.CoreV1().Namespaces().Create(context.Background(), &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{Name: "ate-system"},
 	}, metav1.CreateOptions{})
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
-		os.Exit(1)
+		log.Fatalf("create ate-system namespace: %v", err)
 	}
 
 	// Create shared Atelet Pod
@@ -106,14 +109,14 @@ func TestMain(m *testing.M) {
 	}
 	createdAtelet, err := k8sClient.CoreV1().Pods("ate-system").Create(context.Background(), ateletPod, metav1.CreateOptions{})
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
-		os.Exit(1)
+		log.Fatalf("create atelet pod: %v", err)
 	}
 	if err == nil {
 		createdAtelet.Status.PodIPs = []corev1.PodIP{{IP: "127.0.0.1"}}
 		createdAtelet.Status.Phase = corev1.PodRunning
 		_, err = k8sClient.CoreV1().Pods("ate-system").UpdateStatus(context.Background(), createdAtelet, metav1.UpdateOptions{})
 		if err != nil {
-			os.Exit(1)
+			log.Fatalf("update atelet pod status: %v", err)
 		}
 	}
 
@@ -122,7 +125,7 @@ func TestMain(m *testing.M) {
 	ateletpb.RegisterAteomHerderServer(ateletGrpcServer, fakeAtelet)
 	ateletLis, err := net.Listen("tcp", "127.0.0.1:8085")
 	if err != nil {
-		os.Exit(1)
+		log.Fatalf("listen on 127.0.0.1:8085: %v", err)
 	}
 	go func() {
 		if err := ateletGrpcServer.Serve(ateletLis); err != nil {
@@ -136,7 +139,7 @@ func TestMain(m *testing.M) {
 
 	err = testEnv.Stop()
 	if err != nil {
-		os.Exit(1)
+		log.Fatalf("testEnv.Stop: %v", err)
 	}
 
 	os.Exit(code)
@@ -868,6 +871,7 @@ func TestResumeActor(t *testing.T) {
 		ActorTemplate:   "tmpl1",
 		ActorId:         id,
 		Ip:              "127.0.0.1",
+		NodeName:        "node1",
 	}
 
 	if diff := cmp.Diff(wantWorker, actorWorker, protocmp.Transform(), protocmp.IgnoreFields(&ateapipb.Worker{}, "version"), protocmp.IgnoreFields(&ateapipb.Worker{}, "worker_pod_uid")); diff != "" {
@@ -1123,14 +1127,112 @@ func TestSuspendActor(t *testing.T) {
 			ActorTemplateNamespace: ns,
 			ActorTemplateName:      "tmpl1",
 			Status:                 ateapipb.Actor_STATUS_SUSPENDED,
-			LastSnapshot:           fmt.Sprintf("gs://my-bucket/%s/tmpl1/%s/", ns, id),
+			LatestSnapshotInfo: &ateapipb.SnapshotInfo{
+				Type: ateapipb.SnapshotType_SNAPSHOT_TYPE_EXTERNAL,
+				Data: &ateapipb.SnapshotInfo_External{
+					External: &ateapipb.ExternalSnapshotInfo{
+						SnapshotUriPrefix: fmt.Sprintf("gs://fake-fake-fake/%s/", id),
+					},
+				},
+			},
 		},
 	}
 
-	if diff := cmp.Diff(want, getResp, protocmp.Transform(), protocmp.IgnoreFields(&ateapipb.Actor{}, "version", "last_snapshot", "ateom_pod_uid")); diff != "" {
+	if diff := cmp.Diff(want, getResp,
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&ateapipb.Actor{}, "version"),
+		protocmp.IgnoreFields(&ateapipb.Actor{}, "ateom_pod_uid"),
+		protocmp.FilterField(&ateapipb.ExternalSnapshotInfo{}, "snapshot_uri_prefix", cmp.Comparer(func(x, y string) bool {
+			return strings.HasPrefix(y, x)
+		})),
+	); diff != "" {
 		t.Errorf("GetActor response mismatch (-want +got):\n%s", diff)
 	}
+}
 
+// TestPauseActor tests the full workflow of pausing a running actor.
+// Workflow:
+// 1. Creates a mock ActorTemplate.
+// 2. Creates a mock Atelet Pod on 'node1'.
+// 3. Creates a mock worker Pod on 'node1'.
+// 4. Waits for the WorkerPoolSyncer to mirror the worker to Redis.
+// 5. Creates an actor.
+// 6. Calls ResumeActor to transition it to RUNNING.
+// 7. Calls PauseActor RPC.
+// 8. Verifies that the fake Atelet received the Pause call.
+func TestPauseActor(t *testing.T) {
+	ns := namespaceForTest("ns-pause")
+	tc := setupTest(t, ns)
+	defer tc.cleanup()
+
+	createTemplate(t, tc, ns)
+
+	createWorkerPod(t, tc, ns, "worker-1", "node1")
+
+	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{
+		ActorTemplateNamespace: ns,
+		ActorTemplateName:      "tmpl1",
+		ActorId:                "id1",
+	})
+	if err != nil {
+		t.Fatalf("CreateActor failed: %v", err)
+	}
+	id := "id1"
+
+	// Resume first to make it running
+	_, err = tc.client.ResumeActor(context.Background(), &ateapipb.ResumeActorRequest{
+		ActorId: id,
+	})
+	if err != nil {
+		t.Fatalf("ResumeActor failed: %v", err)
+	}
+
+	// Pause
+	_, err = tc.client.PauseActor(context.Background(), &ateapipb.PauseActorRequest{
+		ActorId: id,
+	})
+	if err != nil {
+		t.Fatalf("PauseActor failed: %v", err)
+	}
+
+	if !tc.fakeAtelet.CheckpointCalled {
+		t.Errorf("expected atelet Checkpoint to be called")
+	}
+
+	getResp, err := tc.client.GetActor(context.Background(), &ateapipb.GetActorRequest{
+		ActorId: id,
+	})
+	if err != nil {
+		t.Fatalf("GetActor failed: %v", err)
+	}
+	want := &ateapipb.GetActorResponse{
+		Actor: &ateapipb.Actor{
+			ActorId:                id,
+			ActorTemplateNamespace: ns,
+			ActorTemplateName:      "tmpl1",
+			Status:                 ateapipb.Actor_STATUS_PAUSED,
+			LatestSnapshotInfo: &ateapipb.SnapshotInfo{
+				Type: ateapipb.SnapshotType_SNAPSHOT_TYPE_LOCAL,
+				Data: &ateapipb.SnapshotInfo_Local{
+					Local: &ateapipb.LocalSnapshotInfo{
+						SnapshotPrefix:            "id1",
+						NodeVmsWithLocalSnapshots: []string{"node1"},
+					},
+				},
+			},
+		},
+	}
+
+	if diff := cmp.Diff(want, getResp,
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&ateapipb.Actor{}, "version"),
+		protocmp.IgnoreFields(&ateapipb.Actor{}, "ateom_pod_uid"),
+		protocmp.FilterField(&ateapipb.LocalSnapshotInfo{}, "snapshot_prefix", cmp.Comparer(func(x, y string) bool {
+			return strings.HasPrefix(y, x)
+		})),
+	); diff != "" {
+		t.Errorf("GetActor response mismatch (-want +got):\n%s", diff)
+	}
 }
 
 // TestValidation tests the negative validation cases for all gRPC methods.
