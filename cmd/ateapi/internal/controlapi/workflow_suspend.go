@@ -191,6 +191,12 @@ func (s *CallAteletSuspendStep) Execute(ctx context.Context, input *SuspendInput
 			}
 			ateletCtr.Env = append(ateletCtr.Env, ateletEnv)
 		}
+		for _, mount := range ctr.VolumeMounts {
+			ateletCtr.VolumeMounts = append(ateletCtr.VolumeMounts, &ateletpb.VolumeMount{
+				Name:      mount.Name,
+				MountPath: mount.MountPath,
+			})
+		}
 		req.Spec.Containers = append(req.Spec.Containers, ateletCtr)
 	}
 	_, err = client.Checkpoint(ctx, req)
