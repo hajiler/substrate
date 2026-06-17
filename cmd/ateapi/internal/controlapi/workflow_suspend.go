@@ -204,6 +204,7 @@ func (s *CallAteletSuspendStep) Execute(ctx context.Context, input *SuspendInput
 func (s *CallAteletSuspendStep) RetryBackoff() *wait.Backoff { return nil }
 
 type DetachVolumesStep struct {
+	store store.Interface
 }
 
 func (s *DetachVolumesStep) Name() string { return "DetachVolumes" }
@@ -213,7 +214,22 @@ func (s *DetachVolumesStep) IsComplete(ctx context.Context, input *SuspendInput,
 }
 
 func (s *DetachVolumesStep) Execute(ctx context.Context, input *SuspendInput, state *SuspendState) error {
-	node := "todo"
+	if state.Actor.GetAteomPodName() == "" {
+		slog.WarnContext(ctx, "Actor has no assigned pod during suspend, skipping detach volumes", slog.String("actor_id", input.ActorID))
+		return nil
+	}
+
+	workerNamespace := state.ActorTemplate.Spec.WorkerPoolRef.Namespace
+	if workerNamespace == "" {
+		workerNamespace = state.Actor.GetActorTemplateNamespace()
+	}
+	worker, err := s.store.GetWorker(ctx, workerNamespace, state.ActorTemplate.Spec.WorkerPoolRef.Name, state.Actor.GetAteomPodName())
+	if err != nil {
+		slog.WarnContext(ctx, "Failed to lookup worker during detach, assuming node is already cleaned up or unknown", slog.String("actor_id", input.ActorID), slog.Any("err", err))
+		return nil
+	}
+	node := worker.GetNodeName()
+
 	if node == "" {
 		slog.WarnContext(ctx, "Actor has no assigned node during suspend, skipping detach volumes", slog.String("actor_id", input.ActorID))
 		return nil

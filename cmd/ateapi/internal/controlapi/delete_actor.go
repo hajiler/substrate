@@ -39,18 +39,15 @@ func (s *Service) DeleteActor(ctx context.Context, req *ateapipb.DeleteActorRequ
 		return nil, fmt.Errorf("while fetching actor: %w", err)
 	}
 
-	// Delete associated volumes (TODO: best effort?)
-	s.deleteActorVolumes(ctx, req.GetActorId(), actor.GetVolumes())
+	if actor.GetStatus() != ateapipb.Actor_STATUS_SUSPENDED {
+		return nil, status.Errorf(codes.FailedPrecondition, "Actor %s is not suspended (status: %v)", req.GetActorId(), actor.GetStatus())
+	}
 
 	if err := s.persistence.DeleteActor(ctx, req.GetActorId()); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, status.Errorf(codes.NotFound, "Actor %s not found", req.GetActorId())
 		}
 		if errors.Is(err, store.ErrFailedPrecondition) {
-			actor, getErr := s.persistence.GetActor(ctx, req.GetActorId())
-			if getErr == nil {
-				return nil, status.Errorf(codes.FailedPrecondition, "Actor %s is not suspended (status: %v)", req.GetActorId(), actor.GetStatus())
-			}
 			return nil, status.Errorf(codes.FailedPrecondition, "Actor %s is not suspended", req.GetActorId())
 		}
 		if errors.Is(err, store.ErrPersistenceRetry) {
@@ -58,6 +55,9 @@ func (s *Service) DeleteActor(ctx context.Context, req *ateapipb.DeleteActorRequ
 		}
 		return nil, fmt.Errorf("while deleting actor from DB: %w", err)
 	}
+
+	// Delete associated volumes (best effort cleanup after the actor is successfully deleted)
+	s.deleteActorVolumes(ctx, req.GetActorId(), actor.GetVolumes())
 
 	return &ateapipb.DeleteActorResponse{}, nil
 }

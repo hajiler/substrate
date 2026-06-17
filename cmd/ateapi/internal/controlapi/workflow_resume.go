@@ -143,6 +143,7 @@ func (s *AssignWorkerStep) RetryBackoff() *wait.Backoff {
 }
 
 type AttachVolumesStep struct {
+	store store.Interface
 }
 
 func (s *AttachVolumesStep) Name() string { return "AttachVolumes" }
@@ -152,8 +153,16 @@ func (s *AttachVolumesStep) IsComplete(ctx context.Context, input *ResumeInput, 
 }
 
 func (s *AttachVolumesStep) Execute(ctx context.Context, input *ResumeInput, state *ResumeState) error {
-	// TODO
-	node := "todo"
+	workerNamespace := state.ActorTemplate.Spec.WorkerPoolRef.Namespace
+	if workerNamespace == "" {
+		workerNamespace = state.Actor.GetActorTemplateNamespace()
+	}
+	worker, err := s.store.GetWorker(ctx, workerNamespace, state.ActorTemplate.Spec.WorkerPoolRef.Name, state.Actor.GetAteomPodName())
+	if err != nil {
+		return fmt.Errorf("failed to lookup worker to get node name: %w", err)
+	}
+	node := worker.GetNodeName()
+
 	if node == "" {
 		return fmt.Errorf("actor has no assigned node")
 	}
