@@ -33,19 +33,19 @@ are **atespace-scoped**, whereas `Atespace` resources are naturally **global-sco
 * Atespace-scoped resources belong to an atespace. Their identity is `(atespace, name)`, unique within the resource type.
 * Global-scoped resources are global across the entire deployment and do not belong to any atespace. For these, the identity is `name` alone.
 
-In both cases, a `meta` field contains both `atespace` and `name`. For global resources, the `atespace` must always be empty.
+In both cases, a `metadata` field contains both `atespace` and `name`. For global resources, the `atespace` must always be empty.
 
 ```proto
 message Actor {
   // The atespace this actor belongs to.
-  ResourceMetadata meta = 1;
+  ResourceMetadata metadata = 1;
 
   // ... other fields
 }
 
 
 message ResourceMetadata {
-  // The atespace this resource belongs to.
+  // The atespace this resource belongs to. Empty if the resource has global-scope.
   string atespace = 1;
   // The name of this resource, unique within its atespace.
   string name = 2;
@@ -54,12 +54,13 @@ message ResourceMetadata {
 }
 ```
 
-- All resources in Substrate must have a `ResourceMetadata meta = 1` field to hold common fields, which includes both `atespace` and `name`.
+- All resources in Substrate must have a `ResourceMetadata metadata = 1` field to hold common fields, which includes both `atespace` and `name`.
+- If the resource type has global-scope, the `atespace` field must be always empty.
 
 ### 2.3 Character constraints
 
 Both `atespace` and `name` must be valid resource names.
-A valid resource name must comply the following rules:
+A valid resource name must comply with the following rules:
 
 - Lowercase alphanumeric characters and hyphens only.
 - Must start with a lowercase alphanumeric character.
@@ -91,7 +92,8 @@ message GetActorRequest {
 
 message DeleteActorRequest {
   ObjectRef actor   = 1;
-  int64     version = 2;
+
+  // ... other fields
 }
 ```
 
@@ -178,7 +180,7 @@ Rules:
 - The repeated resource field **must** use the plural form of the resource name (e.g., `actors`, not `actor`).
 - If a user provides a `page_size` above the maximum, coerce it silently. If a user provides a negative value, return `INVALID_ARGUMENT`.
 - Sorting and filtering as specified in AIP-132 are not supported.
-- Clients must iterate over all pages until an empty `next_page_token` is returned. Clients should assume that an empty result means the end of the page stream.
+- Clients must iterate over all pages until an empty `next_page_token` is returned. Clients should not assume that an empty result (i.e. len(actors) == 0) means the end of the stream.
 
 ### 3.3 Create
 
@@ -189,7 +191,7 @@ rpc CreateActor(CreateActorRequest) returns (Actor) {}
 
 message CreateActorRequest {
   // The actor to create.
-  // actor.meta.atespace and actor.meta.name together specify the resource's identity
+  // actor.metadata.atespace and actor.metadata.name together specify the resource's identity
   // and must both be set by the caller.
   Actor actor = 1;
 }
@@ -198,10 +200,10 @@ message CreateActorRequest {
 Rules:
 - RPC name **must** begin with `Create` followed by the singular resource name.
 - Response **must** be the resource itself — not a `CreateActorResponse` wrapper.
-- `actor.meta.atespace` and `actor.meta.name` are **required** and caller-specified. The server does not generate them.
-- Other meta fields such as `uid`, timestamps, `version`, etc, are server side generated.
+- `actor.metadata.atespace` and `actor.metadata.name` are **required** and caller-specified. The server does not generate them.
+- Other meta fields such as `uid`, timestamps, `version`, etc, are server side generated, and ignored when specified.
 - If a resource already exists with the same `(atespace, name)`: return `ALREADY_EXISTS`.
-- `actor.meta.atespace` must be specified iff the resource type is atespace-scoped, otherwise the service must return `INVALID_ARGUMENT`.
+- `actor.metadata.atespace` must be specified iff the resource type is atespace-scoped, otherwise the service must return `INVALID_ARGUMENT`.
 
 **Divergence from AIP-133:** AIP-133 separates `parent` + `{resource}_id` from the resource body because AIP-122 makes the resource `name` field output-only (constructed by the server from the parent path). In Substrate's model, `atespace` and `name` are directly caller-specified identity fields on the resource, so duplicating them at the top level of the request adds no information and creates ambiguity about which one wins. The embedded resource is the single source of truth for identity on create.
 
@@ -231,10 +233,11 @@ Rules:
 - Response **must** be the resource itself — not an `UpdateActorResponse` wrapper.
 - `update_mask` **must** be of type `google.protobuf.FieldMask` and **must** be named `update_mask`.
 - `update_mask` is **required**. An absent or empty mask **must** return `INVALID_ARGUMENT`.
+- If `update_mask` includes an immutable field (e.g. output only), **must** return `INVALID_ARGUMENT`.
 - The special value `*` is **not supported**. Clients must enumerate the exact fields to update.
 - The resource's `atespace` and `name` identify the resource to update; they are not themselves updatable.
 - If the resource does not exist: return `NOT_FOUND`.
-- Additional "control" fields can be added to the request message to control the semantics of the operation (e.g. dry-run, or UID precondition check).
+- Additional "control" fields can be added to the request message to control the semantics of the operation (e.g. dry-run).
 
 **Divergence from AIP-134:** AIP-134 makes `update_mask` optional (omission implies updating all populated fields) and requires support for `*`. Substrate requires an explicit mask.
 
@@ -247,7 +250,8 @@ rpc DeleteActor(DeleteActorRequest) returns (Actor) {}
 
 message DeleteActorRequest {
   ObjectRef actor   = 1;
-  int64     version = 2; // optional freshness guard; 0 = skip check
+
+  // ... other fields
 }
 ```
 
@@ -319,7 +323,7 @@ Because `update_mask` is required, the server always knows which fields the clie
 
 *Follows [AIP-148](https://google.aip.dev/148) and [AIP-142](https://google.aip.dev/142). Diverges in that a shared message contains all standard fields.*
 
-All resources in Substrate must have a `ResourceMetadata meta = 1` field to hold common fields.
+All resources in Substrate must have a `ResourceMetadata metadata = 1` field to hold common fields.
 
 ```proto
 message ResourceMetadata {
@@ -330,7 +334,7 @@ message ResourceMetadata {
   // Immutable throughout the lifecycle of the resource.
   string uid = 3;
 
-  // version is incremented on every mutation.
+  // version is increased on every mutation.
   int64 version = 4;
 
   // create_time is the time the resource was created.
@@ -387,7 +391,7 @@ message ResourceMetadata {
 
   // ... other fields
 
-  // version is incremented on every mutation.
+  // version is increased on every mutation.
   int64 version = 4;
 }
 ```
@@ -407,7 +411,7 @@ A client that wants to guard against concurrent modification echoes back the `ve
 // Client read actor at version 5, now updating:
 UpdateActorRequest {
   actor: Actor {
-    meta: ResourceMetadata {
+    metadata: ResourceMetadata {
       atespace: "my-space"
       name:     "my-actor"
       version:  5            // guard: fail if server is not at 5
@@ -417,6 +421,9 @@ UpdateActorRequest {
   update_mask: "worker_selector"
 }
 ```
+
+- Note that the `version` field doesn't need to be included in the update mask, as it's a control field managed by the server, not
+a mutable field.
 
 **Delete and custom methods:** add an optional `int64 version` field to the request:
 
