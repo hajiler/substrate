@@ -64,6 +64,13 @@ func (s *Service) DeleteActor(ctx context.Context, req *ateapipb.DeleteActorRequ
 		return nil, fmt.Errorf("while deleting actor from DB: %w", err)
 	}
 
+	// Delete associated volumes (best effort)
+	actorRef := &ateapipb.ObjectRef{
+		Atespace: deleted.GetMetadata().GetAtespace(),
+		Name:     deleted.GetMetadata().GetName(),
+	}
+	s.deleteActorVolumes(ctx, actorRef, deleted.GetActorVolumes())
+
 	return deleted, nil
 }
 
