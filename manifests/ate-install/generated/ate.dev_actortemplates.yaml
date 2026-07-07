@@ -306,6 +306,28 @@ spec:
                         durableDir represents a durable directory on rootfs that persists across
                         resumes and participates in snapshots.
                       type: object
+                    externalVolumeTemplate:
+                      description: |-
+                        externalVolumeTemplate represents an external volume dynamically provisioned
+                        for each actor. The volume only lives as long as the actor and is deleted
+                        when the actor is deleted.
+                      properties:
+                        capacity:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          description: capacity specifies the size of the volume to
+                            create.
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        storageClassName:
+                          description: storageClassName refers to the StorageClass
+                            to create the volume from.
+                          type: string
+                      required:
+                      - capacity
+                      - storageClassName
+                      type: object
                     name:
                       description: name of the volume.
                       maxLength: 63
@@ -317,8 +339,10 @@ spec:
                   - name
                   type: object
                   x-kubernetes-validations:
-                  - message: exactly one of the fields in [durableDir] must be set
-                    rule: '[has(self.durableDir)].filter(x,x==true).size() == 1'
+                  - message: exactly one of the fields in [durableDir externalVolumeTemplate]
+                      must be set
+                    rule: '[has(self.durableDir),has(self.externalVolumeTemplate)].filter(x,x==true).size()
+                      == 1'
                 maxItems: 32
                 type: array
               workerSelector:
