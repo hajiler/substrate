@@ -84,7 +84,7 @@ func (x ExternalVolume_Status) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ExternalVolume_Status.Descriptor instead.
 func (ExternalVolume_Status) EnumDescriptor() ([]byte, []int) {
-	return file_ateapi_proto_rawDescGZIP(), []int{5, 0}
+	return file_ateapi_proto_rawDescGZIP(), []int{4, 0}
 }
 
 type Actor_Status int32
@@ -376,6 +376,77 @@ func (x *Selector) GetMatchLabels() map[string]string {
 	return nil
 }
 
+type ExternalVolume struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// actor_id + the volume name specified in the actor template.
+	ActorVolumeId string `protobuf:"bytes,1,opt,name=actor_volume_id,json=actorVolumeId,proto3" json:"actor_volume_id,omitempty"`
+	// The volume_id returned from the storage system.
+	StorageVolumeId string `protobuf:"bytes,2,opt,name=storage_volume_id,json=storageVolumeId,proto3" json:"storage_volume_id,omitempty"`
+	// Internal volume plugin name or CSI driver name.
+	VolumeType    string                `protobuf:"bytes,3,opt,name=volume_type,json=volumeType,proto3" json:"volume_type,omitempty"`
+	Status        ExternalVolume_Status `protobuf:"varint,4,opt,name=status,proto3,enum=ateapi.ExternalVolume_Status" json:"status,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExternalVolume) Reset() {
+	*x = ExternalVolume{}
+	mi := &file_ateapi_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExternalVolume) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExternalVolume) ProtoMessage() {}
+
+func (x *ExternalVolume) ProtoReflect() protoreflect.Message {
+	mi := &file_ateapi_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExternalVolume.ProtoReflect.Descriptor instead.
+func (*ExternalVolume) Descriptor() ([]byte, []int) {
+	return file_ateapi_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *ExternalVolume) GetActorVolumeId() string {
+	if x != nil {
+		return x.ActorVolumeId
+	}
+	return ""
+}
+
+func (x *ExternalVolume) GetStorageVolumeId() string {
+	if x != nil {
+		return x.StorageVolumeId
+	}
+	return ""
+}
+
+func (x *ExternalVolume) GetVolumeType() string {
+	if x != nil {
+		return x.VolumeType
+	}
+	return ""
+}
+
+func (x *ExternalVolume) GetStatus() ExternalVolume_Status {
+	if x != nil {
+		return x.Status
+	}
+	return ExternalVolume_PROVISIONING
+}
+
 // ResourceMetadata holds the common fields carried by every Substrate resource.
 type ResourceMetadata struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -400,7 +471,7 @@ type ResourceMetadata struct {
 
 func (x *ResourceMetadata) Reset() {
 	*x = ResourceMetadata{}
-	mi := &file_ateapi_proto_msgTypes[4]
+	mi := &file_ateapi_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -412,7 +483,7 @@ func (x *ResourceMetadata) String() string {
 func (*ResourceMetadata) ProtoMessage() {}
 
 func (x *ResourceMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_ateapi_proto_msgTypes[4]
+	mi := &file_ateapi_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -425,7 +496,7 @@ func (x *ResourceMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResourceMetadata.ProtoReflect.Descriptor instead.
 func (*ResourceMetadata) Descriptor() ([]byte, []int) {
-	return file_ateapi_proto_rawDescGZIP(), []int{4}
+	return file_ateapi_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ResourceMetadata) GetAtespace() string {
@@ -468,77 +539,6 @@ func (x *ResourceMetadata) GetUpdateTime() *timestamppb.Timestamp {
 		return x.UpdateTime
 	}
 	return nil
-}
-
-type ExternalVolume struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// actor_id + the volume name specified in the actor template.
-	ActorVolumeId string `protobuf:"bytes,1,opt,name=actor_volume_id,json=actorVolumeId,proto3" json:"actor_volume_id,omitempty"`
-	// The volume_id returned from the storage system.
-	StorageVolumeId string `protobuf:"bytes,2,opt,name=storage_volume_id,json=storageVolumeId,proto3" json:"storage_volume_id,omitempty"`
-	// Internal volume plugin name or CSI driver name.
-	VolumeType    string                `protobuf:"bytes,3,opt,name=volume_type,json=volumeType,proto3" json:"volume_type,omitempty"`
-	Status        ExternalVolume_Status `protobuf:"varint,4,opt,name=status,proto3,enum=ateapi.ExternalVolume_Status" json:"status,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ExternalVolume) Reset() {
-	*x = ExternalVolume{}
-	mi := &file_ateapi_proto_msgTypes[5]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ExternalVolume) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ExternalVolume) ProtoMessage() {}
-
-func (x *ExternalVolume) ProtoReflect() protoreflect.Message {
-	mi := &file_ateapi_proto_msgTypes[5]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ExternalVolume.ProtoReflect.Descriptor instead.
-func (*ExternalVolume) Descriptor() ([]byte, []int) {
-	return file_ateapi_proto_rawDescGZIP(), []int{5}
-}
-
-func (x *ExternalVolume) GetActorVolumeId() string {
-	if x != nil {
-		return x.ActorVolumeId
-	}
-	return ""
-}
-
-func (x *ExternalVolume) GetStorageVolumeId() string {
-	if x != nil {
-		return x.StorageVolumeId
-	}
-	return ""
-}
-
-func (x *ExternalVolume) GetVolumeType() string {
-	if x != nil {
-		return x.VolumeType
-	}
-	return ""
-}
-
-func (x *ExternalVolume) GetStatus() ExternalVolume_Status {
-	if x != nil {
-		return x.Status
-	}
-	return ExternalVolume_PROVISIONING
 }
 
 type Actor struct {
@@ -2282,16 +2282,7 @@ const file_ateapi_proto_rawDesc = "" +
 	"\fmatch_labels\x18\x01 \x03(\v2!.ateapi.Selector.MatchLabelsEntryR\vmatchLabels\x1a>\n" +
 	"\x10MatchLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xe8\x01\n" +
-	"\x10ResourceMetadata\x12\x1a\n" +
-	"\batespace\x18\x01 \x01(\tR\batespace\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\x12\x10\n" +
-	"\x03uid\x18\x03 \x01(\tR\x03uid\x12\x18\n" +
-	"\aversion\x18\x04 \x01(\x03R\aversion\x12;\n" +
-	"\vcreate_time\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"createTime\x12;\n" +
-	"\vupdate_time\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"updateTime\"\xf3\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xf3\x01\n" +
 	"\x0eExternalVolume\x12&\n" +
 	"\x0factor_volume_id\x18\x01 \x01(\tR\ractorVolumeId\x12*\n" +
 	"\x11storage_volume_id\x18\x02 \x01(\tR\x0fstorageVolumeId\x12\x1f\n" +
@@ -2301,7 +2292,16 @@ const file_ateapi_proto_rawDesc = "" +
 	"\x06Status\x12\x10\n" +
 	"\fPROVISIONING\x10\x00\x12\v\n" +
 	"\aCREATED\x10\x01\x12\f\n" +
-	"\bDELETING\x10\x02\"\xc1\x06\n" +
+	"\bDELETING\x10\x02\"\xe8\x01\n" +
+	"\x10ResourceMetadata\x12\x1a\n" +
+	"\batespace\x18\x01 \x01(\tR\batespace\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x10\n" +
+	"\x03uid\x18\x03 \x01(\tR\x03uid\x12\x18\n" +
+	"\aversion\x18\x04 \x01(\x03R\aversion\x12;\n" +
+	"\vcreate_time\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"createTime\x12;\n" +
+	"\vupdate_time\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"updateTime\"\xc1\x06\n" +
 	"\x05Actor\x124\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x18.ateapi.ResourceMetadataR\bmetadata\x128\n" +
 	"\x18actor_template_namespace\x18\x02 \x01(\tR\x16actorTemplateNamespace\x12.\n" +
@@ -2464,8 +2464,8 @@ var file_ateapi_proto_goTypes = []any{
 	(*LocalSnapshotInfo)(nil),       // 3: ateapi.LocalSnapshotInfo
 	(*SnapshotInfo)(nil),            // 4: ateapi.SnapshotInfo
 	(*Selector)(nil),                // 5: ateapi.Selector
-	(*ResourceMetadata)(nil),        // 6: ateapi.ResourceMetadata
-	(*ExternalVolume)(nil),          // 7: ateapi.ExternalVolume
+	(*ExternalVolume)(nil),          // 6: ateapi.ExternalVolume
+	(*ResourceMetadata)(nil),        // 7: ateapi.ResourceMetadata
 	(*Actor)(nil),                   // 8: ateapi.Actor
 	(*Atespace)(nil),                // 9: ateapi.Atespace
 	(*ObjectRef)(nil),               // 10: ateapi.ObjectRef
@@ -2506,15 +2506,15 @@ var file_ateapi_proto_depIdxs = []int32{
 	2,  // 0: ateapi.SnapshotInfo.external:type_name -> ateapi.ExternalSnapshotInfo
 	3,  // 1: ateapi.SnapshotInfo.local:type_name -> ateapi.LocalSnapshotInfo
 	40, // 2: ateapi.Selector.match_labels:type_name -> ateapi.Selector.MatchLabelsEntry
-	42, // 3: ateapi.ResourceMetadata.create_time:type_name -> google.protobuf.Timestamp
-	42, // 4: ateapi.ResourceMetadata.update_time:type_name -> google.protobuf.Timestamp
-	0,  // 5: ateapi.ExternalVolume.status:type_name -> ateapi.ExternalVolume.Status
-	6,  // 6: ateapi.Actor.metadata:type_name -> ateapi.ResourceMetadata
+	0,  // 3: ateapi.ExternalVolume.status:type_name -> ateapi.ExternalVolume.Status
+	42, // 4: ateapi.ResourceMetadata.create_time:type_name -> google.protobuf.Timestamp
+	42, // 5: ateapi.ResourceMetadata.update_time:type_name -> google.protobuf.Timestamp
+	7,  // 6: ateapi.Actor.metadata:type_name -> ateapi.ResourceMetadata
 	1,  // 7: ateapi.Actor.status:type_name -> ateapi.Actor.Status
 	4,  // 8: ateapi.Actor.latest_snapshot_info:type_name -> ateapi.SnapshotInfo
 	5,  // 9: ateapi.Actor.worker_selector:type_name -> ateapi.Selector
-	7,  // 10: ateapi.Actor.actor_volumes:type_name -> ateapi.ExternalVolume
-	6,  // 11: ateapi.Atespace.metadata:type_name -> ateapi.ResourceMetadata
+	6,  // 10: ateapi.Actor.actor_volumes:type_name -> ateapi.ExternalVolume
+	7,  // 11: ateapi.Atespace.metadata:type_name -> ateapi.ResourceMetadata
 	9,  // 12: ateapi.CreateAtespaceRequest.atespace:type_name -> ateapi.Atespace
 	10, // 13: ateapi.GetAtespaceRequest.atespace:type_name -> ateapi.ObjectRef
 	9,  // 14: ateapi.ListAtespacesResponse.atespaces:type_name -> ateapi.Atespace

@@ -93,6 +93,24 @@ message Selector {
   map<string, string> match_labels = 1;
 }
 
+message ExternalVolume {
+  // actor_id + the volume name specified in the actor template.
+  string actor_volume_id = 1;
+
+  // The volume_id returned from the storage system.
+  string storage_volume_id = 2;
+
+  // Internal volume plugin name or CSI driver name.
+  string volume_type = 3;
+
+  enum Status {
+    PROVISIONING = 0;
+    CREATED = 1;
+    DELETING = 2;
+  }
+  Status status = 4;
+}
+
 // ResourceMetadata holds the common fields carried by every Substrate resource.
 message ResourceMetadata {
   // atespace is the namespace the resource belongs to. Empty for global-scoped
@@ -115,24 +133,6 @@ message ResourceMetadata {
 
   // update_time is the time the resource was last updated.
   google.protobuf.Timestamp update_time = 6;
-}
-
-message ExternalVolume {
-  // actor_id + the volume name specified in the actor template.
-  string actor_volume_id = 1;
-
-  // The volume_id returned from the storage system.
-  string storage_volume_id = 2;
-
-  // Internal volume plugin name or CSI driver name.
-  string volume_type = 3;
-
-  enum Status {
-    PROVISIONING = 0;
-    CREATED = 1;
-    DELETING = 2;
-  }
-  Status status = 4;
 }
 
 message Actor {
