@@ -15,6 +15,7 @@
 package v1alpha1
 
 import (
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -39,12 +40,27 @@ type DurableDirVolumeSource struct {
 //
 // When adding a new source type, list it in the ExactlyOneOf marker below.
 //
-// +kubebuilder:validation:ExactlyOneOf={durableDir}
+// +kubebuilder:validation:ExactlyOneOf={durableDir,externalVolumeTemplate}
 type VolumeSource struct {
 	// durableDir represents a durable directory on rootfs that persists across
 	// resumes and participates in snapshots.
 	// +optional
 	DurableDir *DurableDirVolumeSource `json:"durableDir,omitempty" protobuf:"bytes,2,opt,name=durableDir"`
+
+	// externalVolumeTemplate represents an external volume dynamically provisioned
+	// for each actor. The volume only lives as long as the actor and is deleted
+	// when the actor is deleted.
+	// +optional
+	ExternalVolumeTemplate *ExternalVolumeTemplate `json:"externalVolumeTemplate,omitempty" protobuf:"bytes,3,opt,name=externalVolumeTemplate"`
+}
+
+type ExternalVolumeTemplate struct {
+	// capacity specifies the size of the volume to create.
+	// +required
+	Capacity resource.Quantity `json:"capacity" protobuf:"bytes,1,opt,name=capacity"`
+	// storageClassName refers to the StorageClass to create the volume from.
+	// +required
+	StorageClassName string `json:"storageClassName" protobuf:"bytes,2,opt,name=storageClassName"`
 }
 
 type Volume struct {
