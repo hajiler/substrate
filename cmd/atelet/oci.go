@@ -29,6 +29,7 @@ import (
 
 	"github.com/agent-substrate/substrate/cmd/atelet/internal/memorypullcache"
 	"github.com/agent-substrate/substrate/internal/ateompath"
+
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -53,7 +54,7 @@ const (
 	ActorIDFileName = "actor-id"
 )
 
-func prepareOCIDirectory(ctx context.Context, pullCache *memorypullcache.MemoryPullCache, atespace, actorID, containerName, ref string, args []string, env []string, annotations map[string]string, netns string, identityDir string, durableDirVolumeMounts []*ateletpb.VolumeMount) error {
+func prepareOCIDirectory(ctx context.Context, pullCache *memorypullcache.MemoryPullCache, atespace, actorID, containerName, ref string, args []string, env []string, annotations map[string]string, netns string, identityDir string, volumes []*ateletpb.Volume, volumeMounts []*ateletpb.VolumeMount) error {
 	tracer := otel.Tracer("prepareOCIDirectory")
 
 	ctx, span := tracer.Start(ctx, "prepareOCIDirectory")
@@ -90,7 +91,14 @@ func prepareOCIDirectory(ctx context.Context, pullCache *memorypullcache.MemoryP
 		}
 	}
 
-	ociSpec := buildActorOCISpec(atespace, actorID, args, env, annotations, netns, identityDir, durableDirVolumeMounts)
+	// Create directories in rootfs to mount all volumes.
+	for _, vm := range volumeMounts {
+		if err := createMountPoint(rootPath, vm.GetMountPath()); err != nil {
+			return fmt.Errorf("while creating volume mount point %q: %w", vm.GetMountPath(), err)
+		}
+	}
+
+	ociSpec := buildActorOCISpec(atespace, actorID, args, env, annotations, netns, identityDir, volumes, volumeMounts)
 	ociSpecBytes, err := json.MarshalIndent(ociSpec, "", "  ")
 	if err != nil {
 		return fmt.Errorf("while marshaling OCI spec: %w", err)
@@ -107,7 +115,7 @@ func prepareOCIDirectory(ctx context.Context, pullCache *memorypullcache.MemoryP
 // When identityDir is non-empty it adds a read-only bind mount of that host
 // directory at IdentityMountPath so the actor can read its own ID (see
 // IdentityMountPath for why this is a bind mount rather than env vars).
-func buildActorOCISpec(atespace string, actorID string, args []string, env []string, annotations map[string]string, netns string, identityDir string, durableDirVolumeMounts []*ateletpb.VolumeMount) *specs.Spec {
+func buildActorOCISpec(atespace string, actorID string, args []string, env []string, annotations map[string]string, netns string, identityDir string, volumes []*ateletpb.Volume, volumeMounts []*ateletpb.VolumeMount) *specs.Spec {
 	envVars := []string{
 		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 	}
@@ -220,12 +228,27 @@ func buildActorOCISpec(atespace string, actorID string, args []string, env []str
 		Annotations: annotations,
 	}
 
-	// Prepare and mount durable-dir volumes.
-	for _, vm := range durableDirVolumeMounts {
+	// Prepare and mount all volumes.
+	volumeTypes := make(map[string]ateletpb.VolumeType)
+	for _, vol := range volumes {
+		volumeTypes[vol.GetName()] = vol.GetType()
+	}
+
+	for _, vm := range volumeMounts {
+		var srcPath string
+		switch volumeTypes[vm.GetName()] {
+		case ateletpb.VolumeType_VOLUME_TYPE_DURABLE_DIR:
+			srcPath = ateompath.DurableDirVolumeMountPoint(atespace, actorID, vm.GetName())
+		case ateletpb.VolumeType_VOLUME_TYPE_EXTERNAL:
+			srcPath = ateompath.VolumeHostPath(atespace, actorID, vm.GetName())
+		default:
+			continue
+		}
 		spec.Mounts = append(spec.Mounts, specs.Mount{
 			Destination: vm.GetMountPath(),
 			Type:        "bind",
-			Source:      ateompath.DurableDirVolumeMountPoint(atespace, actorID, vm.GetName()),
+			Source:      srcPath,
+			Options:     []string{"bind", "rw"},
 		})
 	}
 
