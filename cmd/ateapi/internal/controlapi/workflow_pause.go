@@ -124,7 +124,10 @@ func (s *CallAteletPauseStep) Execute(ctx context.Context, input *PauseInput, st
 	}
 	client := ateletpb.NewAteomHerderClient(ateletConn)
 
-	workloadSpec := workloadSpecFromActorTemplate(state.ActorTemplate)
+	workloadSpec, err := workloadSpecFromActorTemplate(state.ActorTemplate, state.Actor)
+	if err != nil {
+		return err
+	}
 
 	// Checkpoint does not carry the sandbox config: atelet uses the version the
 	// actor is currently running (recorded on-node at Run/Restore) and pins it
@@ -150,6 +153,51 @@ func (s *CallAteletPauseStep) Execute(ctx context.Context, input *PauseInput, st
 }
 
 func (s *CallAteletPauseStep) RetryBackoff() *wait.Backoff { return nil }
+
+type DetachVolumesForPauseStep struct {
+	store store.Interface
+}
+
+func (s *DetachVolumesForPauseStep) Name() string { return "DetachVolumesForPause" }
+
+func (s *DetachVolumesForPauseStep) IsComplete(ctx context.Context, input *PauseInput, state *PauseState) (bool, error) {
+	// TODO replace with a proper check on the volumes.
+	return state.Actor.GetStatus() == ateapipb.Actor_STATUS_PAUSED && state.Actor.GetAteomPodNamespace() == "", nil
+}
+
+func (s *DetachVolumesForPauseStep) Execute(ctx context.Context, input *PauseInput, state *PauseState) error {
+	if state.Actor.GetAteomPodNamespace() == "" {
+		slog.WarnContext(ctx, "Actor has no assigned worker pod during pause, skipping detach volumes", slog.String("actor_id", input.ActorName))
+		return nil
+	}
+
+	worker, err := s.store.GetWorker(ctx, state.Actor.GetAteomPodNamespace(), state.Actor.GetWorkerPoolName(), state.Actor.GetAteomPodName())
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			slog.WarnContext(ctx, "Worker not found in store during pause, skipping detach volumes", slog.String("actor_id", input.ActorName))
+			return nil
+		}
+		return fmt.Errorf("failed to get worker: %w", err)
+	}
+
+	node := worker.GetNodeName()
+	if node == "" {
+		slog.WarnContext(ctx, "Worker has no assigned node name during pause, skipping detach volumes", slog.String("actor_id", input.ActorName))
+		return nil
+	}
+
+	ref := &ateapipb.ObjectRef{Atespace: state.Actor.GetMetadata().GetAtespace(), Name: state.Actor.GetMetadata().GetName()}
+	for _, vol := range getMountedActorVolumes(ctx, ref, state.Actor.GetActorVolumes(), state.ActorTemplate) {
+		slog.InfoContext(ctx, "Detaching volume from node", slog.String("volume_id", vol.GetStorageVolumeId()), slog.String("node", node))
+		err := getVolumePlugin().DetachVolume(ctx, vol.GetStorageVolumeId(), node)
+		if err != nil {
+			return fmt.Errorf("failed to detach volume %q from node %q: %w", vol.GetStorageVolumeId(), node, err)
+		}
+	}
+	return nil
+}
+
+func (s *DetachVolumesForPauseStep) RetryBackoff() *wait.Backoff { return nil }
 
 type FinalizePausedStep struct {
 	store store.Interface
