@@ -42,7 +42,7 @@ spec:
   containers:
   - name: counter
     image: ko://github.com/agent-substrate/substrate/demos/counter
-    command: ["/ko-app/counter", "--validate-existing-file-path=/external-data/test.txt"]
+    command: ["/ko-app/counter", "--file-counter-directory=/home/counter", "--validate-existing-file-path=/external-data/test.txt"]
     readyz:
       httpGet:
         path: /readyz
