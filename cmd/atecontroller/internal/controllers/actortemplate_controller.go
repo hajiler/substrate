@@ -151,8 +151,8 @@ func (r *ActorTemplateReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			return ctrl.Result{}, fmt.Errorf("while suspending golden actor: %w", err)
 		}
 
-		if resp.GetActor().GetLatestSnapshotInfo().GetType() != ateapipb.SnapshotType_SNAPSHOT_TYPE_EXTERNAL {
-			return ctrl.Result{}, fmt.Errorf("unexpected snapshot type for golden actor: %v", resp.GetActor().GetLatestSnapshotInfo().GetType())
+		if resp.GetActor().GetLatestSnapshotInfo().GetExternal() == nil {
+			return ctrl.Result{}, fmt.Errorf("unexpected snapshot type for golden actor: %T", resp.GetActor().GetLatestSnapshotInfo().GetData())
 		}
 
 		// Transition to PhaseReady

@@ -267,7 +267,7 @@ func (s *CallAteletRestoreStep) Execute(ctx context.Context, input *ResumeInput,
 		return err
 	}
 
-	if state.Actor.GetLatestSnapshotInfo().GetType() != ateapipb.SnapshotType_SNAPSHOT_TYPE_UNSPECIFIED {
+	if data := state.Actor.GetLatestSnapshotInfo().GetData(); data != nil {
 		slog.InfoContext(ctx, "Actor has snapshot; Restoring from snapshot")
 
 		req := &ateletpb.RestoreRequest{
@@ -278,25 +278,25 @@ func (s *CallAteletRestoreStep) Execute(ctx context.Context, input *ResumeInput,
 			ActorTemplateName:      state.Actor.GetActorTemplateName(),
 			Spec:                   workloadSpec,
 		}
-		switch state.Actor.GetLatestSnapshotInfo().GetType() {
-		case ateapipb.SnapshotType_SNAPSHOT_TYPE_LOCAL:
+		switch d := data.(type) {
+		case *ateapipb.SnapshotInfo_Local:
 			req.Type = ateletpb.CheckpointType_CHECKPOINT_TYPE_LOCAL
 			req.Config = &ateletpb.RestoreRequest_LocalConfig{
 				LocalConfig: &ateletpb.LocalCheckpointConfiguration{
-					SnapshotPrefix: state.Actor.GetLatestSnapshotInfo().GetLocal().SnapshotPrefix,
+					SnapshotPrefix: d.Local.GetSnapshotPrefix(),
 				},
 			}
 			req.Scope = toAteletSnapshotScope(state.ActorTemplate.Spec.SnapshotsConfig.OnPause)
-		case ateapipb.SnapshotType_SNAPSHOT_TYPE_EXTERNAL:
+		case *ateapipb.SnapshotInfo_External:
 			req.Type = ateletpb.CheckpointType_CHECKPOINT_TYPE_EXTERNAL
 			req.Config = &ateletpb.RestoreRequest_ExternalConfig{
 				ExternalConfig: &ateletpb.ExternalCheckpointConfiguration{
-					SnapshotUriPrefix: state.Actor.GetLatestSnapshotInfo().GetExternal().SnapshotUriPrefix,
+					SnapshotUriPrefix: d.External.GetSnapshotUriPrefix(),
 				},
 			}
 			req.Scope = toAteletSnapshotScope(state.ActorTemplate.Spec.SnapshotsConfig.OnCommit)
 		default:
-			return fmt.Errorf("unsupported snapshot type: %v", state.Actor.GetLatestSnapshotInfo().GetType())
+			return fmt.Errorf("unsupported snapshot type: %T", data)
 		}
 
 		_, err = client.Restore(ctx, req)

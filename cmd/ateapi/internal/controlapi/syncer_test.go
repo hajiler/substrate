@@ -195,7 +195,6 @@ func TestSyncer_DeleteBoundWorker_ClearsActor(t *testing.T) {
 		AteomPodNamespace: ns, AteomPodName: pod, AteomPodIp: ip,
 		InProgressSnapshot: "gs://snapshots/partial",
 		LatestSnapshotInfo: &ateapipb.SnapshotInfo{
-			Type: ateapipb.SnapshotType_SNAPSHOT_TYPE_EXTERNAL,
 			Data: &ateapipb.SnapshotInfo_External{
 				External: &ateapipb.ExternalSnapshotInfo{
 					SnapshotUriPrefix: "gs://snapshots/last",

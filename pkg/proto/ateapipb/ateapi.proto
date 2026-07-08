@@ -66,12 +66,6 @@ service Control {
   rpc DebugClear(DebugClearRequest) returns (DebugClearResponse) {}
 }
 
-enum SnapshotType {
-  SNAPSHOT_TYPE_UNSPECIFIED = 0;
-  SNAPSHOT_TYPE_LOCAL       = 1;
-  SNAPSHOT_TYPE_EXTERNAL      = 2;
-}
-
 message ExternalSnapshotInfo {
   string snapshot_uri_prefix = 1;
 }
@@ -83,11 +77,13 @@ message LocalSnapshotInfo {
 }
 
 message SnapshotInfo {
-  SnapshotType type = 1;
   oneof data {
     ExternalSnapshotInfo external = 2;
     LocalSnapshotInfo    local    = 3;
   }
+
+  reserved 1;
+  reserved "type";
 }
 
 // Selector matches worker pools by label.

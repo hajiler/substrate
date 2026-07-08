@@ -197,7 +197,6 @@ func (s *FinalizeSuspendedStep) Execute(ctx context.Context, input *SuspendInput
 		latestActor.Status = ateapipb.Actor_STATUS_SUSPENDED
 		if latestActor.InProgressSnapshot != "" {
 			latestActor.LatestSnapshotInfo = &ateapipb.SnapshotInfo{
-				Type: ateapipb.SnapshotType_SNAPSHOT_TYPE_EXTERNAL,
 				Data: &ateapipb.SnapshotInfo_External{
 					External: &ateapipb.ExternalSnapshotInfo{
 						SnapshotUriPrefix: latestActor.InProgressSnapshot,
