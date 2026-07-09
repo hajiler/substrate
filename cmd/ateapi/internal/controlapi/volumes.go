@@ -28,14 +28,6 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-var (
-	globalVolumePlugin = volume.NewMockVolumePlugin()
-)
-
-// TODO: Replace with actual volume plugin search
-func getVolumePlugin() volume.VolumePluginControlPlane {
-	return globalVolumePlugin
-}
 
 // TODO: we should persist creation first so that we can handle background cleanup.
 // this probably requires us to add a PROVISIONING actor state.
@@ -49,7 +41,7 @@ func (s *Service) createActorVolumes(ctx context.Context, ref *ateapipb.ObjectRe
 		if vol.ExternalVolumeTemplate != nil {
 			// Use a unique name for the volume to ensure idempotency
 			uniqueVolName := actorVolumeID(ref, vol.Name)
-			storageVolumeID, err := getVolumePlugin().CreateVolume(ctx, uniqueVolName, vol.ExternalVolumeTemplate.Capacity.String(), vol.ExternalVolumeTemplate.StorageClassName)
+			storageVolumeID, err := s.volumePlugin.CreateVolume(ctx, uniqueVolName, vol.ExternalVolumeTemplate.Capacity.String(), vol.ExternalVolumeTemplate.StorageClassName)
 			if err != nil {
 				// TODO: need better system - best effort cleanup of already created volumes
 				s.deleteActorVolumes(ctx, ref, volumes)
@@ -69,7 +61,7 @@ func (s *Service) createActorVolumes(ctx context.Context, ref *ateapipb.ObjectRe
 // deleteActorVolumes deletes all external volumes in the list on a best-effort basis.
 func (s *Service) deleteActorVolumes(ctx context.Context, ref *ateapipb.ObjectRef, volumes []*ateapipb.ExternalVolume) {
 	for _, vol := range volumes {
-		if err := getVolumePlugin().DeleteVolume(ctx, vol.GetStorageVolumeId()); err != nil {
+		if err := s.volumePlugin.DeleteVolume(ctx, vol.GetStorageVolumeId()); err != nil {
 			slog.ErrorContext(ctx, "failed to delete volume",
 				slog.String("atespace", ref.GetAtespace()),
 				slog.String("actor_id", ref.GetName()),
@@ -113,7 +105,7 @@ func actorVolumeID(ref *ateapipb.ObjectRef, volumeName string) string {
 }
 
 // detachActorVolumes detaches all mounted external volumes for an actor from its worker node.
-func detachActorVolumes(ctx context.Context, st store.Interface, actor *ateapipb.Actor, template *atev1alpha1.ActorTemplate, action string) error {
+func detachActorVolumes(ctx context.Context, st store.Interface, plugin volume.VolumePluginControlPlane, actor *ateapipb.Actor, template *atev1alpha1.ActorTemplate, action string) error {
 	if actor.GetAteomPodNamespace() == "" {
 		slog.WarnContext(ctx, fmt.Sprintf("Actor has no assigned worker pod during %s, skipping detach volumes", action), slog.String("actor_id", actor.GetMetadata().GetName()))
 		return nil
@@ -137,7 +129,7 @@ func detachActorVolumes(ctx context.Context, st store.Interface, actor *ateapipb
 	ref := &ateapipb.ObjectRef{Atespace: actor.GetMetadata().GetAtespace(), Name: actor.GetMetadata().GetName()}
 	for _, vol := range getMountedActorVolumes(ctx, ref, actor.GetActorVolumes(), template) {
 		slog.InfoContext(ctx, "Detaching volume from node", slog.String("volume_id", vol.GetStorageVolumeId()), slog.String("node", node))
-		err := getVolumePlugin().DetachVolume(ctx, vol.GetStorageVolumeId(), node)
+		err := plugin.DetachVolume(ctx, vol.GetStorageVolumeId(), node)
 		if err != nil {
 			return fmt.Errorf("failed to detach volume %q from node %q: %w", vol.GetStorageVolumeId(), node, err)
 		}

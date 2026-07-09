@@ -39,6 +39,8 @@ import (
 	"github.com/agent-substrate/substrate/internal/resources"
 	"github.com/agent-substrate/substrate/internal/serverboot"
 	"github.com/agent-substrate/substrate/internal/version"
+	"github.com/agent-substrate/substrate/internal/volume"
+	"github.com/agent-substrate/substrate/pkg/csi"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -69,6 +71,9 @@ var (
 	localhostRegistryReplacement = pflag.String("localhost-registry-replacement", "", "The replacement registry endpoint for localhost and/or loopback IP addresses, useful for local development. for example kind-registry:5000")
 
 	showVersion = pflag.Bool("version", false, "Print version and exit.")
+
+	volumePlugin = pflag.String("volume-plugin", "mock", "The volume plugin to use: mock|csi")
+	csiEndpoint  = pflag.String("csi-endpoint", "", "The UDS endpoint path for the CSI driver (required if volume-plugin is csi)")
 )
 
 func main() {
@@ -160,12 +165,30 @@ func main() {
 		wrappedGCS = ategcs.NewGCSClient(gcsClient)
 	}
 
+	var volPlugin volume.VolumePlugin
+	switch *volumePlugin {
+	case "csi":
+		if *csiEndpoint == "" {
+			serverboot.Fatal(ctx, "Failed to initialize volume plugin", fmt.Errorf("--csi-endpoint is required when --volume-plugin is csi"))
+		}
+		csiClient, err := csi.NewCSIClient(*csiEndpoint)
+		if err != nil {
+			serverboot.Fatal(ctx, "Failed to initialize CSI client", err)
+		}
+		volPlugin = csi.NewPlugin(csiClient)
+		slog.InfoContext(ctx, "Using CSI volume plugin", slog.String("endpoint", *csiEndpoint))
+	default:
+		volPlugin = volume.NewMockVolumePlugin()
+		slog.InfoContext(ctx, "Using Mock volume plugin")
+	}
+
 	wmService := NewService(
 		ctx,
 		ateomDialer,
 		wrappedAnonGCS,
 		wrappedGCS,
 		pullCache,
+		volPlugin,
 	)
 
 	lis, err := net.Listen("tcp", ":"+strconv.Itoa(*port))
@@ -191,6 +214,7 @@ type AteomHerder struct {
 	pullCache     *memorypullcache.MemoryPullCache
 	anonGCSClient ategcs.ObjectStorage
 	gcsClient     ategcs.ObjectStorage
+	volumePlugin  volume.VolumePlugin
 }
 
 var _ ateletpb.AteomHerderServer = (*AteomHerder)(nil)
@@ -202,12 +226,14 @@ func NewService(
 	anonGCSClient ategcs.ObjectStorage,
 	gcsClient ategcs.ObjectStorage,
 	pullCache *memorypullcache.MemoryPullCache,
+	volumePlugin volume.VolumePlugin,
 ) *AteomHerder {
 	wms := &AteomHerder{
 		ateomDialer:   ateomDialer,
 		pullCache:     pullCache,
 		anonGCSClient: anonGCSClient,
 		gcsClient:     gcsClient,
+		volumePlugin:  volumePlugin,
 	}
 	return wms
 }
