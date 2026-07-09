@@ -18,24 +18,19 @@ import (
 	"context"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // GetPluginInfo returns the metadata (name, version) of the CSI plugin.
 func (c *Client) GetPluginInfo(ctx context.Context, req *csi.GetPluginInfoRequest) (*csi.GetPluginInfoResponse, error) {
-	// Skeleton stub. Replace with actual implementation: return c.identity.GetPluginInfo(ctx, req)
-	return nil, status.Error(codes.Unimplemented, "GetPluginInfo is not implemented")
+	return c.identity.GetPluginInfo(ctx, req)
 }
 
 // GetPluginCapabilities returns the capabilities supported by the CSI plugin.
 func (c *Client) GetPluginCapabilities(ctx context.Context, req *csi.GetPluginCapabilitiesRequest) (*csi.GetPluginCapabilitiesResponse, error) {
-	// Skeleton stub. Replace with actual implementation: return c.identity.GetPluginCapabilities(ctx, req)
-	return nil, status.Error(codes.Unimplemented, "GetPluginCapabilities is not implemented")
+	return c.identity.GetPluginCapabilities(ctx, req)
 }
 
 // Probe checks the health/readiness status of the CSI plugin.
 func (c *Client) Probe(ctx context.Context, req *csi.ProbeRequest) (*csi.ProbeResponse, error) {
-	// Skeleton stub. Replace with actual implementation: return c.identity.Probe(ctx, req)
-	return nil, status.Error(codes.Unimplemented, "Probe is not implemented")
+	return c.identity.Probe(ctx, req)
 }

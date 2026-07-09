@@ -18,30 +18,24 @@ import (
 	"context"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // CreateVolume provisions a new volume.
 func (c *Client) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
-	// Skeleton stub. Replace with actual implementation: return c.controller.CreateVolume(ctx, req)
-	return nil, status.Error(codes.Unimplemented, "CreateVolume is not implemented")
+	return c.controller.CreateVolume(ctx, req)
 }
 
 // DeleteVolume deprovisions a volume.
 func (c *Client) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest) (*csi.DeleteVolumeResponse, error) {
-	// Skeleton stub. Replace with actual implementation: return c.controller.DeleteVolume(ctx, req)
-	return nil, status.Error(codes.Unimplemented, "DeleteVolume is not implemented")
+	return c.controller.DeleteVolume(ctx, req)
 }
 
 // ControllerPublishVolume attaches the volume to a node.
 func (c *Client) ControllerPublishVolume(ctx context.Context, req *csi.ControllerPublishVolumeRequest) (*csi.ControllerPublishVolumeResponse, error) {
-	// Skeleton stub. Replace with actual implementation: return c.controller.ControllerPublishVolume(ctx, req)
-	return nil, status.Error(codes.Unimplemented, "ControllerPublishVolume is not implemented")
+	return c.controller.ControllerPublishVolume(ctx, req)
 }
 
 // ControllerUnpublishVolume detaches the volume from a node.
 func (c *Client) ControllerUnpublishVolume(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) (*csi.ControllerUnpublishVolumeResponse, error) {
-	// Skeleton stub. Replace with actual implementation: return c.controller.ControllerUnpublishVolume(ctx, req)
-	return nil, status.Error(codes.Unimplemented, "ControllerUnpublishVolume is not implemented")
+	return c.controller.ControllerUnpublishVolume(ctx, req)
 }
