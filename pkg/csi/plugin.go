@@ -30,7 +30,8 @@ import (
 
 // Plugin implements volume.VolumePlugin using the CSI Client.
 type Plugin struct {
-	client *Client
+	client           *Client
+	stagingDirPrefix string
 }
 
 // Ensure Plugin implements volume.VolumePlugin
@@ -39,7 +40,8 @@ var _ volume.VolumePlugin = (*Plugin)(nil)
 // NewPlugin creates a new Plugin adapter.
 func NewPlugin(client *Client) *Plugin {
 	return &Plugin{
-		client: client,
+		client:           client,
+		stagingDirPrefix: "/var/lib/ateom-gvisor/staging",
 	}
 }
 
@@ -137,7 +139,7 @@ func (p *Plugin) DetachVolume(ctx context.Context, volumeID string, node string)
 // It also handles NodeStageVolume staging if required by the driver.
 func (p *Plugin) MountVolume(ctx context.Context, volumeID string, targetPath string) error {
 	// 1. Stage the volume
-	stagingPath := filepath.Join("/var/lib/ateom-gvisor/staging", volumeID)
+	stagingPath := filepath.Join(p.stagingDirPrefix, volumeID)
 	if err := os.MkdirAll(stagingPath, 0750); err != nil {
 		return fmt.Errorf("failed to create staging directory %q: %w", stagingPath, err)
 	}
@@ -191,7 +193,7 @@ func (p *Plugin) UnmountVolume(ctx context.Context, volumeID string, targetPath 
 	}
 
 	// 2. Unstage the volume
-	stagingPath := filepath.Join("/var/lib/ateom-gvisor/staging", volumeID)
+	stagingPath := filepath.Join(p.stagingDirPrefix, volumeID)
 	unstageReq := &csi.NodeUnstageVolumeRequest{
 		VolumeId:          volumeID,
 		StagingTargetPath: stagingPath,
