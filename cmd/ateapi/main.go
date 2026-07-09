@@ -37,8 +37,10 @@ import (
 	"github.com/agent-substrate/substrate/internal/ateinterceptors"
 	"github.com/agent-substrate/substrate/internal/serverboot"
 	"github.com/agent-substrate/substrate/internal/version"
+	"github.com/agent-substrate/substrate/internal/volume"
 	"github.com/agent-substrate/substrate/pkg/client/clientset/versioned"
 	"github.com/agent-substrate/substrate/pkg/client/informers/externalversions"
+	"github.com/agent-substrate/substrate/pkg/csi"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/redis/go-redis/v9"
 	"github.com/spf13/pflag"
@@ -73,6 +75,9 @@ var (
 	showVersion     = pflag.Bool("version", false, "Print version and exit.")
 	authMode        = pflag.String("auth-mode", "mtls", "Auth mode for incoming gRPC: mtls|jwt. 'mtls' (default) relies on transport-level mTLS for client identity. 'jwt' additionally requires a Kubernetes ServiceAccount Bearer token on every RPC. Substrate will drop support for JWT auth mode once the Pod Certificates feature is enabled by default in the minimum supported Kubernetes version.")
 	clientJWTCAFile = pflag.String("client-jwt-ca-cert", ateapiauth.DefaultServiceAccountCAFile, "CA cert file used to verify TLS when fetching the OIDC discovery document and JWKS for JWT authentication. Defaults to the in-cluster service account CA.")
+
+	volumePlugin = pflag.String("volume-plugin", "csi", "The volume plugin to use: mock|csi")
+	csiEndpoint  = pflag.String("csi-endpoint", "unix:///tmp/dummy-csi.sock", "The UDS endpoint path for the CSI driver (required if volume-plugin is csi)")
 )
 
 func main() {
@@ -150,8 +155,25 @@ func main() {
 	ateletPodInformerFactory.WaitForCacheSync(stopCh)
 	ateFactory.WaitForCacheSync(stopCh)
 
+	var volPlugin volume.VolumePlugin
+	switch *volumePlugin {
+	case "csi":
+		if *csiEndpoint == "" {
+			serverboot.Fatal(ctx, "Failed to initialize volume plugin", fmt.Errorf("--csi-endpoint is required when --volume-plugin is csi"))
+		}
+		csiClient, err := csi.NewCSIClient(*csiEndpoint)
+		if err != nil {
+			serverboot.Fatal(ctx, "Failed to initialize CSI client", err)
+		}
+		volPlugin = csi.NewPlugin(csiClient)
+		slog.InfoContext(ctx, "Using CSI volume plugin", slog.String("endpoint", *csiEndpoint))
+	default:
+		volPlugin = volume.NewMockVolumePlugin()
+		slog.InfoContext(ctx, "Using Mock volume plugin")
+	}
+
 	dialer := controlapi.NewAteletDialer(workerPodInformer.GetIndexer(), ateletPodInformer.GetIndexer())
-	sm := controlapi.NewService(redisPersistence, workerCache, actorTemplateLister, workerPoolLister, sandboxConfigLister, dialer, clientset)
+	sm := controlapi.NewService(redisPersistence, workerCache, actorTemplateLister, workerPoolLister, sandboxConfigLister, dialer, clientset, volPlugin)
 
 	jwtIssuerDiscoveryClient := buildK8sServiceAccountIssuerDiscoveryClient(ctx, *clientJWTCAFile, *clientJWTIssuer)
 	if authModeParsed == ateapiauth.ModeJWT && jwtIssuerDiscoveryClient == nil {

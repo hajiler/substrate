@@ -24,6 +24,7 @@ import (
 
 	"github.com/agent-substrate/substrate/cmd/ateapi/internal/store"
 	"github.com/agent-substrate/substrate/internal/proto/ateletpb"
+	"github.com/agent-substrate/substrate/internal/volume"
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	listersv1alpha1 "github.com/agent-substrate/substrate/pkg/client/listers/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
@@ -155,7 +156,8 @@ func (s *CallAteletPauseStep) Execute(ctx context.Context, input *PauseInput, st
 func (s *CallAteletPauseStep) RetryBackoff() *wait.Backoff { return nil }
 
 type DetachVolumesForPauseStep struct {
-	store store.Interface
+	store        store.Interface
+	volumePlugin volume.VolumePlugin
 }
 
 func (s *DetachVolumesForPauseStep) Name() string { return "DetachVolumesForPause" }
@@ -187,7 +189,7 @@ func (s *DetachVolumesForPauseStep) Execute(ctx context.Context, input *PauseInp
 
 	for _, vol := range state.Actor.GetActorVolumes() {
 		slog.InfoContext(ctx, "Detaching volume from node", slog.String("volume_id", vol.GetStorageVolumeId()), slog.String("node", node))
-		err := getVolumePlugin().DetachVolume(ctx, vol.GetStorageVolumeId(), node)
+		err := s.volumePlugin.DetachVolume(ctx, vol.GetStorageVolumeId(), node)
 		if err != nil {
 			return fmt.Errorf("failed to detach volume %q from node %q: %w", vol.GetStorageVolumeId(), node, err)
 		}
