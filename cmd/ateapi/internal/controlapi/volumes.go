@@ -19,21 +19,11 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/agent-substrate/substrate/internal/volume"
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
-
-var (
-	globalVolumePlugin = volume.NewMockVolumePlugin()
-)
-
-// TODO: Replace with actual volume plugin search
-func getVolumePlugin() volume.VolumePlugin {
-	return globalVolumePlugin
-}
 
 // TODO: we should persist creation first so that we can handle background cleanup.
 // this probably requires us to add a PROVISIONING actor state.
@@ -47,7 +37,7 @@ func (s *Service) createActorVolumes(ctx context.Context, ref *ateapipb.ObjectRe
 		if vol.ExternalVolumeTemplate != nil {
 			// Use a unique name for the volume to ensure idempotency
 			uniqueVolName := actorVolumeID(ref, vol.Name)
-			storageVolumeID, err := getVolumePlugin().CreateVolume(ctx, uniqueVolName, vol.ExternalVolumeTemplate.Capacity.String(), vol.ExternalVolumeTemplate.StorageClassName)
+			storageVolumeID, err := s.volumePlugin.CreateVolume(ctx, uniqueVolName, vol.ExternalVolumeTemplate.Capacity.String(), vol.ExternalVolumeTemplate.StorageClassName)
 			if err != nil {
 				// TODO: need better system - best effort cleanup of already created volumes
 				s.deleteActorVolumes(ctx, ref, volumes)
@@ -67,7 +57,7 @@ func (s *Service) createActorVolumes(ctx context.Context, ref *ateapipb.ObjectRe
 // deleteActorVolumes deletes all external volumes in the list on a best-effort basis.
 func (s *Service) deleteActorVolumes(ctx context.Context, ref *ateapipb.ObjectRef, volumes []*ateapipb.ExternalVolume) {
 	for _, vol := range volumes {
-		if err := getVolumePlugin().DeleteVolume(ctx, vol.GetStorageVolumeId()); err != nil {
+		if err := s.volumePlugin.DeleteVolume(ctx, vol.GetStorageVolumeId()); err != nil {
 			slog.ErrorContext(ctx, "failed to delete volume",
 				slog.String("atespace", ref.GetAtespace()),
 				slog.String("actor_id", ref.GetName()),
