@@ -17,9 +17,14 @@ package csi
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
 
 	"github.com/agent-substrate/substrate/internal/volume"
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
 
@@ -93,13 +98,19 @@ func (p *Plugin) AttachVolume(ctx context.Context, volumeID string, node string)
 
 	resp, err := p.client.ControllerPublishVolume(ctx, req)
 	if err != nil {
+		if status.Code(err) == codes.Unimplemented {
+			slog.WarnContext(ctx, "CSI ControllerPublishVolume is unimplemented by driver; skipping attach", slog.String("volume_id", volumeID), slog.String("node", node))
+			return nil
+		}
 		return fmt.Errorf("CSI ControllerPublishVolume failed: %w", err)
 	}
 
 	// NOTE: CSI ControllerPublishVolume returns PublishContext (metadata needed for mounting).
 	// Currently, Substrate VolumePlugin interface does not support returning PublishContext.
 	// We might need to store this context if the driver requires it (e.g. AWS EBS attachment info).
-	_ = resp.GetPublishContext()
+	if resp != nil {
+		_ = resp.GetPublishContext()
+	}
 
 	return nil
 }
@@ -113,23 +124,52 @@ func (p *Plugin) DetachVolume(ctx context.Context, volumeID string, node string)
 
 	_, err := p.client.ControllerUnpublishVolume(ctx, req)
 	if err != nil {
+		if status.Code(err) == codes.Unimplemented {
+			slog.WarnContext(ctx, "CSI ControllerUnpublishVolume is unimplemented by driver; skipping detach", slog.String("volume_id", volumeID), slog.String("node", node))
+			return nil
+		}
 		return fmt.Errorf("CSI ControllerUnpublishVolume failed: %w", err)
 	}
 	return nil
 }
 
 // MountVolume maps to CSI Node NodePublishVolume.
-// Note: NodeStageVolume staging is currently not handled here.
+// It also handles NodeStageVolume staging if required by the driver.
 func (p *Plugin) MountVolume(ctx context.Context, volumeID string, targetPath string) error {
+	// 1. Stage the volume
+	stagingPath := filepath.Join("/var/lib/ateom-gvisor/staging", volumeID)
+	if err := os.MkdirAll(stagingPath, 0750); err != nil {
+		return fmt.Errorf("failed to create staging directory %q: %w", stagingPath, err)
+	}
+
+	stageReq := &csi.NodeStageVolumeRequest{
+		VolumeId:          volumeID,
+		StagingTargetPath: stagingPath,
+		VolumeCapability:  getStandardCapabilities()[0], // Use primary capability
+	}
+
+	_, err := p.client.NodeStageVolume(ctx, stageReq)
+	if err != nil {
+		if status.Code(err) == codes.Unimplemented {
+			slog.WarnContext(ctx, "CSI NodeStageVolume is unimplemented by driver; skipping staging", slog.String("volume_id", volumeID))
+			stagingPath = ""
+		} else {
+			return fmt.Errorf("CSI NodeStageVolume failed: %w", err)
+		}
+	}
+
+	// 2. Publish (Mount) the volume
 	req := &csi.NodePublishVolumeRequest{
 		VolumeId:         volumeID,
 		TargetPath:       targetPath,
 		VolumeCapability: getStandardCapabilities()[0],
 		Readonly:         false,
-		// PublishContext: we would pass the PublishContext retrieved during Attach here.
+	}
+	if stagingPath != "" {
+		req.StagingTargetPath = stagingPath
 	}
 
-	_, err := p.client.NodePublishVolume(ctx, req)
+	_, err = p.client.NodePublishVolume(ctx, req)
 	if err != nil {
 		return fmt.Errorf("CSI NodePublishVolume failed: %w", err)
 	}
@@ -137,7 +177,9 @@ func (p *Plugin) MountVolume(ctx context.Context, volumeID string, targetPath st
 }
 
 // UnmountVolume maps to CSI Node NodeUnpublishVolume.
+// It also handles NodeUnstageVolume if staging was used.
 func (p *Plugin) UnmountVolume(ctx context.Context, volumeID string, targetPath string) error {
+	// 1. Unpublish (Unmount) the volume
 	req := &csi.NodeUnpublishVolumeRequest{
 		VolumeId:   volumeID,
 		TargetPath: targetPath,
@@ -147,6 +189,28 @@ func (p *Plugin) UnmountVolume(ctx context.Context, volumeID string, targetPath 
 	if err != nil {
 		return fmt.Errorf("CSI NodeUnpublishVolume failed: %w", err)
 	}
+
+	// 2. Unstage the volume
+	stagingPath := filepath.Join("/var/lib/ateom-gvisor/staging", volumeID)
+	unstageReq := &csi.NodeUnstageVolumeRequest{
+		VolumeId:          volumeID,
+		StagingTargetPath: stagingPath,
+	}
+
+	_, err = p.client.NodeUnstageVolume(ctx, unstageReq)
+	if err != nil {
+		if status.Code(err) == codes.Unimplemented {
+			slog.WarnContext(ctx, "CSI NodeUnstageVolume is unimplemented by driver; skipping unstaging", slog.String("volume_id", volumeID))
+		} else {
+			return fmt.Errorf("CSI NodeUnstageVolume failed: %w", err)
+		}
+	}
+
+	// Clean up staging directory
+	if err := os.Remove(stagingPath); err != nil && !os.IsNotExist(err) {
+		slog.WarnContext(ctx, "failed to remove staging directory", slog.String("path", stagingPath), slog.Any("error", err))
+	}
+
 	return nil
 }
 

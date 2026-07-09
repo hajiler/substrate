@@ -15,9 +15,6 @@
 package csi
 
 import (
-	"context"
-	"net"
-
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -37,10 +34,6 @@ func NewCSIClient(socketPath string) (*Client, error) {
 	// Setup gRPC connection dial options for Unix domain sockets
 	dialOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
-			var d net.Dialer
-			return d.DialContext(ctx, "unix", addr)
-		}),
 	}
 
 	conn, err := grpc.NewClient(socketPath, dialOpts...)

@@ -57,7 +57,7 @@ spec:
       workload: counter
   snapshotsConfig:
     onPause: Full
-    onCommit: Data
+    onCommit: Full
     location: gs://${BUCKET_NAME}/ate-demo-counter/
   volumes:
   - name: data
@@ -65,4 +65,4 @@ spec:
   - name: external-data
     externalVolumeTemplate:
       capacity: 1Gi
-      storageClassName: standard
+      storageClassName: csi-hostpath-sc
