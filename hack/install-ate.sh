@@ -197,6 +197,7 @@ create_api_server_env_vars() {
     --from-literal=ATE_API_REDIS_TLS_SERVER_NAME="${tls_server_name}" \
     --from-literal=ATE_API_REDIS_CLIENT_CERT="${client_cert}" \
     --from-literal=ATE_API_K8SJWT_ISSUER="${jwt_issuer}" \
+    --from-literal=ACTOR_VOLUME_PLUGIN="${ACTOR_VOLUME_PLUGIN:-mock}" \
     --dry-run=client -o yaml \
     | run_kubectl apply -f -
 }

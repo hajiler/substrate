@@ -149,6 +149,27 @@ func (s *CallAteletPauseStep) Execute(ctx context.Context, input *PauseInput, st
 			},
 		},
 	}
+	// Map template volumes to resolved volumes in state
+	for _, vol := range state.ActorTemplate.Spec.Volumes {
+		var storageVolID string
+		var volType string
+		expectedID := fmt.Sprintf("%s-%s", state.Actor.GetActorId(), vol.Name)
+		for _, dbVol := range state.Actor.GetVolumes() {
+			if dbVol.GetActorVolumeId() == expectedID {
+				storageVolID = dbVol.GetStorageVolumeId()
+				volType = dbVol.GetVolumeType()
+				break
+			}
+		}
+		if storageVolID != "" {
+			req.Spec.Volumes = append(req.Spec.Volumes, &ateletpb.Volume{
+				Name:            vol.Name,
+				StorageVolumeId: storageVolID,
+				VolumeType:      volType,
+			})
+		}
+	}
+
 	for _, ctr := range state.ActorTemplate.Spec.Containers {
 		ateletCtr := &ateletpb.Container{
 			Name:    ctr.Name,

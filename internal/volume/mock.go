@@ -54,6 +54,10 @@ func NewMockVolumePlugin() *MockVolumePlugin {
 	}
 }
 
+func init() {
+	RegisterPlugin("mock", NewMockVolumePlugin())
+}
+
 // CreateVolume simulates volume provisioning.
 func (p *MockVolumePlugin) CreateVolume(ctx context.Context, name string, capacity string, storageClass string) (string, error) {
 	p.mu.Lock()
@@ -170,4 +174,16 @@ func (p *MockVolumePlugin) GetVolumeState(volumeID string) (*MockVolumeState, er
 		Node:         vol.Node,
 		Mounts:       mountsCopy,
 	}, nil
+}
+
+// HasVolumeWithName checks if a volume with the given name exists in the mock plugin.
+func (p *MockVolumePlugin) HasVolumeWithName(name string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, vol := range p.volumes {
+		if vol.Name == name {
+			return true
+		}
+	}
+	return false
 }

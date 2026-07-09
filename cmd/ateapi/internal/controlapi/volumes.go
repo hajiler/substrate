@@ -18,8 +18,11 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
+	"sync"
 
 	"github.com/agent-substrate/substrate/internal/volume"
+	"github.com/agent-substrate/substrate/internal/volume/csi"
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc/codes"
@@ -27,12 +30,35 @@ import (
 )
 
 var (
-	globalVolumePlugin = volume.NewMockVolumePlugin()
+	initPluginsOnce sync.Once
 )
 
-// TODO: Replace with actual volume plugin search
+func initPlugins() {
+	initPluginsOnce.Do(func() {
+		// Register CSI plugin. Endpoint is not strictly needed for ateapi (only stubs used),
+		// but we register it anyway for consistency.
+		csiEndpoint := os.Getenv("ACTOR_VOLUME_CSI_ENDPOINT")
+		volume.RegisterPlugin("csi", csi.NewCSINodePlugin(csiEndpoint))
+	})
+}
+
 func getVolumePlugin() volume.VolumePlugin {
-	return globalVolumePlugin
+	initPlugins()
+
+	pluginName := os.Getenv("ACTOR_VOLUME_PLUGIN")
+	if pluginName == "" {
+		pluginName = "mock"
+	}
+
+	p, err := volume.GetPlugin(pluginName)
+	if err != nil {
+		slog.Error("Failed to get volume plugin, falling back to mock", slog.String("plugin", pluginName), slog.Any("error", err))
+		p, err = volume.GetPlugin("mock")
+		if err != nil {
+			panic(fmt.Sprintf("mock volume plugin not registered: %v", err))
+		}
+	}
+	return p
 }
 
 // TODO: we should persist creation first so that we can handle background cleanup.

@@ -40,8 +40,14 @@ func main() {
 		ctx := r.Context()
 		count := atomic.AddUint64(&requestCount, 1)
 
-		var fileVal string
-		fileVal = "test"
+		fileVal, err := readCountFile()
+		if err != nil {
+			fileVal = fmt.Sprintf("error-reading-file: %v", err)
+		}
+
+		if err := updateCountFile(); err != nil {
+			slog.ErrorContext(ctx, "Error updating count file", slog.Any("err", err))
+		}
 
 		currentIP := getCurrentIP()
 		response := fmt.Sprintf("hello from: %s | preserved memory count: %d | file content: %s\n", currentIP, count, fileVal)
@@ -50,13 +56,11 @@ func main() {
 		w.Write([]byte(response))
 	})
 
-	go func() {
-		slog.InfoContext(ctx, "Starting server on port 80")
-		if err := http.ListenAndServe(":80", defaultMux); err != nil {
-			slog.ErrorContext(ctx, "Error starting server", slog.Any("err", err))
-			os.Exit(1)
-		}
-	}()
+	slog.InfoContext(ctx, "Starting server on port 80")
+	if err := http.ListenAndServe(":80", defaultMux); err != nil {
+		slog.ErrorContext(ctx, "Error starting server", slog.Any("err", err))
+		os.Exit(1)
+	}
 }
 
 func updateCountFile() error {
@@ -75,13 +79,13 @@ func updateCountFile() error {
 	return nil
 }
 
-func readCountFile() (error, string) {
+func readCountFile() (string, error) {
 	fileContent, err := os.ReadFile("/data/random-content-file")
 	if err != nil {
 		slog.Error("Error reading count file", slog.Any("err", err))
-		return err, ""
+		return "", err
 	}
-	return nil, string(fileContent)
+	return string(fileContent), nil
 }
 
 func getCurrentIP() string {

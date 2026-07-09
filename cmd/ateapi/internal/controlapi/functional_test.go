@@ -29,6 +29,7 @@ import (
 	"github.com/agent-substrate/substrate/cmd/ateapi/internal/store/ateredis"
 	"github.com/agent-substrate/substrate/internal/ateinterceptors"
 	"github.com/agent-substrate/substrate/internal/proto/ateletpb"
+	"github.com/agent-substrate/substrate/internal/volume"
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/client/clientset/versioned"
 	"github.com/agent-substrate/substrate/pkg/client/informers/externalversions"
@@ -1601,5 +1602,107 @@ func assertGrpcError(t *testing.T, err error, wantCode codes.Code, wantMsg strin
 	}
 	if st.Message() != wantMsg {
 		t.Errorf("expected message %q, got %q", wantMsg, st.Message())
+	}
+}
+
+func createTemplateWithVolumes(t *testing.T, tc *testContext, ns string, volumes []atev1alpha1.Volume) {
+	t.Helper()
+	actorTemplate := &atev1alpha1.ActorTemplate{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "tmpl-vol",
+			Namespace: ns,
+		},
+		Spec: atev1alpha1.ActorTemplateSpec{
+			Runsc: atev1alpha1.RunscConfig{
+				AMD64: &atev1alpha1.RunscPlatformConfig{
+					URL:        "gs://gvisor/releases/nightly/2026-05-19/x86_64/runsc",
+					SHA256Hash: "a397be1abc2420d26bce6c70e6e2ff96c73aaaab929756c56f5e2089ea842b63",
+				},
+			},
+			PauseImage: "pause@sha256:abc",
+			SnapshotsConfig: atev1alpha1.SnapshotsConfig{
+				Location: "gs://fake-fake-fake",
+			},
+			Containers: []atev1alpha1.Container{
+				{
+					Name:    "main",
+					Image:   "main@sha256:abc",
+					Command: []string{"/main"},
+				},
+			},
+			Volumes: volumes,
+			WorkerPoolRef: corev1.ObjectReference{
+				Namespace: ns,
+				Name:      "pool1",
+			},
+		},
+	}
+	createdTemplate, err := tc.substrateClient.ApiV1alpha1().ActorTemplates(ns).Create(context.Background(), actorTemplate, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("failed to create actor template: %v", err)
+	}
+
+	createdTemplate.Status = atev1alpha1.ActorTemplateStatus{
+		GoldenSnapshot: "gs://my-bucket/my-folder",
+	}
+
+	_, err = tc.substrateClient.ApiV1alpha1().ActorTemplates(ns).UpdateStatus(context.Background(), createdTemplate, metav1.UpdateOptions{})
+	if err != nil {
+		t.Fatalf("failed to update status: %v", err)
+	}
+
+	// Wait for Informer cache to sync
+	err = wait.PollUntilContextTimeout(context.Background(), 100*time.Millisecond, 5*time.Second, true, func(ctx context.Context) (bool, error) {
+		tmpl, err := tc.actorTemplateLister.ActorTemplates(ns).Get("tmpl-vol")
+		if err != nil {
+			return false, nil
+		}
+		return tmpl.Status.GoldenSnapshot != "", nil
+	})
+	if err != nil {
+		t.Fatalf("failed to wait for template status update in informer: %v", err)
+	}
+}
+
+func TestCreateActor_VolumeCleanupOnFailure(t *testing.T) {
+	ns := namespaceForTest("ns-create-vol-cleanup")
+	tc := setupTest(t, ns)
+	defer tc.cleanup()
+
+	// 1. Create template with external volume
+	createTemplateWithVolumes(t, tc, ns, []atev1alpha1.Volume{
+		{
+			Name: "test-vol",
+			ExternalVolumeTemplate: &atev1alpha1.ExternalVolumeTemplate{
+				Capacity:         "1Gi",
+				StorageClassName: "mock", // Use mock plugin
+			},
+		},
+	})
+
+	// 2. Shut down miniredis to force persistence.CreateActor to fail
+	tc.mr.Close()
+
+	// 3. Call CreateActor. It should fail because Redis is down.
+	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{
+		ActorTemplateNamespace: ns,
+		ActorTemplateName:      "tmpl-vol",
+		ActorId:                "id-vol-fail",
+	})
+	if err == nil {
+		t.Fatal("expected CreateActor to fail, but it succeeded")
+	}
+
+	// 4. Verify that the volume was cleaned up in the mock plugin.
+	p, err := volume.GetPlugin("mock")
+	if err != nil {
+		t.Fatalf("failed to get mock plugin: %v", err)
+	}
+	mockPlugin := p.(*volume.MockVolumePlugin)
+
+	// The volume name we requested was uniqueVolName: "id-vol-fail-test-vol"
+	uniqueVolName := "id-vol-fail-test-vol"
+	if mockPlugin.HasVolumeWithName(uniqueVolName) {
+		t.Errorf("volume %s was not cleaned up after CreateActor failure", uniqueVolName)
 	}
 }

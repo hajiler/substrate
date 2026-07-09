@@ -122,6 +122,11 @@ def main():
         if filepath.startswith("LICENSES/"):
             continue
 
+        # exclude cached CSI CRD files (external)
+        if filepath.startswith("hack/csi-crds/"):
+            continue
+
+
         # exclude github config
         if filepath in [".github/dependabot.yml"]:
             continue

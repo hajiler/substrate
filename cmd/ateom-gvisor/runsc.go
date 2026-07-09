@@ -38,18 +38,21 @@ func (r *runsc) cmdCreate(ctx context.Context, out io.Writer, containerName stri
 	reapLock.RLock()
 	defer reapLock.RUnlock()
 
-	slog.InfoContext(ctx, "About to run runsc create", slog.String("container", containerName))
+	logDir := ateompath.RunscDebugLogDir(r.actorTemplateNamespace, r.actorTemplateName, r.actorID, containerName)
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		slog.WarnContext(ctx, "failed to create runsc debug log dir", slog.String("path", logDir), slog.Any("error", err))
+	}
 
 	cmd := exec.CommandContext(
 		ctx,
 		r.path,
 		"-log-format", "json",
 		"--alsologtostderr",
-		// "-debug",
-		// "-debug-log", ateompath.RunscDebugLogDir(r.actorTemplateNamespace, r.actorTemplateName, r.actorID, containerName)+"/",
+		"-debug",
+		"-debug-log", logDir+"/",
 		// "-debug-to-user-log",
 		// "-log-packets",
-		// "-strace",
+		"-strace",
 		"-root", ateompath.RunSCStateDir(r.actorTemplateNamespace, r.actorTemplateName, r.actorID),
 		"create",
 		"-bundle", ateompath.OCIBundlePath(r.actorTemplateNamespace, r.actorTemplateName, r.actorID, containerName),
@@ -137,16 +140,21 @@ func (r *runsc) cmdRestore(ctx context.Context, out io.Writer, containerName, ch
 
 	slog.InfoContext(ctx, "About to run runsc restore", slog.String("container", containerName))
 
+	logDir := ateompath.RunscDebugLogDir(r.actorTemplateNamespace, r.actorTemplateName, r.actorID, containerName)
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		slog.WarnContext(ctx, "failed to create runsc debug log dir", slog.String("path", logDir), slog.Any("error", err))
+	}
+
 	cmd := exec.CommandContext(
 		ctx,
 		r.path,
 		"-log-format", "json",
 		"--alsologtostderr",
-		// "-debug",
-		// "-debug-log", ateompath.RunscDebugLogDir(r.actorTemplateNamespace, r.actorTemplateName, r.actorID, containerName)+"/",
+		"-debug",
+		"-debug-log", logDir+"/",
 		// "-debug-to-user-log",
 		// "-log-packets",
-		// "-strace",
+		"-strace",
 		"-root", ateompath.RunSCStateDir(r.actorTemplateNamespace, r.actorTemplateName, r.actorID),
 		"restore",
 		"-bundle", ateompath.OCIBundlePath(r.actorTemplateNamespace, r.actorTemplateName, r.actorID, containerName),

@@ -19,19 +19,48 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sync"
 
 	"github.com/agent-substrate/substrate/internal/ateompath"
 	"github.com/agent-substrate/substrate/internal/proto/ateletpb"
 	"github.com/agent-substrate/substrate/internal/volume"
+	"github.com/agent-substrate/substrate/internal/volume/csi"
 )
 
 var (
-	globalVolumePlugin = volume.NewMockVolumePlugin()
+	initPluginsOnce sync.Once
 )
 
-// TODO: Replace with actual volume plugin search
+func initPlugins() {
+	initPluginsOnce.Do(func() {
+		// Register CSI plugin if endpoint is configured
+		csiEndpoint := os.Getenv("ACTOR_VOLUME_CSI_ENDPOINT")
+		if csiEndpoint != "" {
+			slog.Info("Registering CSI volume plugin", slog.String("endpoint", csiEndpoint))
+			volume.RegisterPlugin("csi", csi.NewCSINodePlugin(csiEndpoint))
+		} else {
+			slog.Info("CSI volume plugin NOT registered (ACTOR_VOLUME_CSI_ENDPOINT not set)")
+		}
+	})
+}
+
 func getVolumePlugin() volume.VolumePlugin {
-	return globalVolumePlugin
+	initPlugins()
+
+	pluginName := os.Getenv("ACTOR_VOLUME_PLUGIN")
+	if pluginName == "" {
+		pluginName = "mock"
+	}
+
+	p, err := volume.GetPlugin(pluginName)
+	if err != nil {
+		slog.Error("Failed to get volume plugin, falling back to mock", slog.String("plugin", pluginName), slog.Any("error", err))
+		p, err = volume.GetPlugin("mock")
+		if err != nil {
+			panic(fmt.Sprintf("mock volume plugin not registered: %v", err))
+		}
+	}
+	return p
 }
 
 func (s *AteomHerder) mountWorkloadVolumes(ctx context.Context, reqNamespace, reqTemplate, reqActorID string, volumes []*ateletpb.Volume) error {

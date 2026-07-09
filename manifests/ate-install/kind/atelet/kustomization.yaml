@@ -49,3 +49,22 @@ patches:
                 value: rustfsadmin
               - name: AWS_SECRET_ACCESS_KEY
                 value: rustfsadmin
+              - name: ACTOR_VOLUME_PLUGIN
+                value: mock
+              - name: ACTOR_VOLUME_CSI_ENDPOINT
+                value: unix:///var/lib/kubelet/plugins/csi-hostpath/csi.sock
+              volumeMounts:
+              - name: kubelet-plugins
+                mountPath: /var/lib/kubelet/plugins
+              - name: csi-hostpath
+                mountPath: /var/lib/csi-hostpath
+            volumes:
+            - name: kubelet-plugins
+              hostPath:
+                path: /var/lib/kubelet/plugins
+                type: DirectoryOrCreate
+            - name: csi-hostpath
+              hostPath:
+                path: /var/lib/csi-hostpath
+                type: DirectoryOrCreate
+

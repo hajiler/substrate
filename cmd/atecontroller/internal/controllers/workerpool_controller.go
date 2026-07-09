@@ -156,7 +156,8 @@ func buildDeploymentApplyConfig(wp *atev1alpha1.WorkerPool) *appsv1ac.Deployment
 						).
 						WithVolumeMounts(corev1ac.VolumeMount().
 							WithName("run-ateom").
-							WithMountPath(ateompath.BasePath))).
+							WithMountPath(ateompath.BasePath).
+							WithMountPropagation(corev1.MountPropagationHostToContainer))).
 					WithSecurityContext(corev1ac.PodSecurityContext().
 						WithRunAsUser(0).
 						WithRunAsGroup(0)).

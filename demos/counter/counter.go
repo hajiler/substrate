@@ -47,7 +47,7 @@ func main() {
 		count := atomic.AddUint64(&requestCount, 1)
 		currentIP := getCurrentIP()
 
-		err, readCount := readCountFile()
+		readCount, err := readCountFile()
 		if err != nil {
 			readCount = err.Error()
 		}
@@ -57,7 +57,9 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(response))
 
-		updateCountFile()
+		if err := updateCountFile(); err != nil {
+			slog.ErrorContext(ctx, "Error updating count file", slog.Any("err", err))
+		}
 	})
 
 	if err := updateCountFile(); err != nil {
@@ -148,11 +150,11 @@ func updateCountFile() error {
 	return nil
 }
 
-func readCountFile() (error, string) {
+func readCountFile() (string, error) {
 	fileContent, err := os.ReadFile("/data/counter-content-file")
 	if err != nil {
 		// slog.Error("Error reading count file", slog.Any("err", err))
-		return err, err.Error()
+		return err.Error(), err
 	}
-	return nil, string(fileContent)
+	return string(fileContent), nil
 }

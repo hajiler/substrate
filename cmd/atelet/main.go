@@ -29,6 +29,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"cloud.google.com/go/storage"
 	"github.com/agent-substrate/substrate/cmd/atelet/internal/ategcs"
@@ -512,6 +513,8 @@ func (s *AteomHerder) Restore(ctx context.Context, req *ateletpb.RestoreRequest)
 	if err := s.mountWorkloadVolumes(ctx, req.GetActorTemplateNamespace(), req.GetActorTemplateName(), req.GetActorId(), req.GetSpec().GetVolumes()); err != nil {
 		return nil, err
 	}
+	// Debug sleep to allow mount propagation to complete
+	time.Sleep(3 * time.Second)
 	defer func() {
 		if err != nil {
 			_ = s.unmountWorkloadVolumes(ctx, req.GetActorTemplateNamespace(), req.GetActorTemplateName(), req.GetActorId(), req.GetSpec().GetVolumes())
