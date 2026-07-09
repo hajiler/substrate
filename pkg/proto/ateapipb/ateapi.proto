@@ -26,7 +26,7 @@ option go_package = "github.com/agent-substrate/substrate/pkg/proto/ateapipb";
 // Control is the primary RPC interface for Agentic Substrate.
 service Control {
   // Get an Actor.
-  rpc GetActor(GetActorRequest) returns (GetActorResponse) {}
+  rpc GetActor(GetActorRequest) returns (Actor) {}
 
   // Create a new Actor deriving from a given ActorTemplate.
   rpc CreateActor(CreateActorRequest) returns (CreateActorResponse) {}
@@ -56,7 +56,7 @@ service Control {
   rpc CreateAtespace(CreateAtespaceRequest) returns (CreateAtespaceResponse) {}
 
   // Get an Atespace by name.
-  rpc GetAtespace(GetAtespaceRequest) returns (GetAtespaceResponse) {}
+  rpc GetAtespace(GetAtespaceRequest) returns (Atespace) {}
 
   // List all Atespaces.
   rpc ListAtespaces(ListAtespacesRequest) returns (ListAtespacesResponse) {}
@@ -184,10 +184,7 @@ message CreateAtespaceResponse {
 }
 
 message GetAtespaceRequest {
-  string name = 1;
-}
-message GetAtespaceResponse {
-  Atespace atespace = 1;
+  ObjectRef atespace = 1;
 }
 
 message ListAtespacesRequest {}
@@ -202,10 +199,6 @@ message DeleteAtespaceResponse {}
 
 message GetActorRequest {
   ObjectRef actor = 1;
-}
-
-message GetActorResponse {
-  Actor actor = 1;
 }
 
 // Request to create a new Actor.

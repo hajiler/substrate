@@ -62,6 +62,30 @@ func ValidateObjectRef(ref *ateapipb.ObjectRef, fldPath *field.Path) field.Error
 	return errs
 }
 
+// ValidateGlobalObjectRef checks that a reference to a global-scoped resource is
+// well-formed: its atespace must be empty (global resources do not belong to an
+// atespace) and its name must be a valid resource name. It does not check that
+// the referenced resource actually exists.
+func ValidateGlobalObjectRef(ref *ateapipb.ObjectRef, fldPath *field.Path) field.ErrorList {
+	if ref == nil {
+		return nil
+	}
+
+	var errs field.ErrorList
+
+	if val, fldPath := ref.Atespace, fldPath.Child("atespace"); val != "" {
+		errs = append(errs, field.Invalid(fldPath, val, "must be empty for a global-scoped resource"))
+	}
+
+	if val, fldPath := ref.Name, fldPath.Child("name"); val == "" {
+		errs = append(errs, field.Required(fldPath, ""))
+	} else {
+		errs = append(errs, ValidateResourceName(val, fldPath)...)
+	}
+
+	return errs
+}
+
 // ValidateAteomUID rejects a target ateom pod UID that could escape the host
 // paths built from it: the netns path (/run/netns/ateom:<uid>) and the ateom
 // control socket (.../ateoms/<uid>/ateom.sock). Kubernetes pod UIDs are UUIDs,

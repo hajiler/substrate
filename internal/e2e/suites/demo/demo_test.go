@@ -609,7 +609,7 @@ func waitForActorStatus(ctx context.Context, t *testing.T, clients *e2e.Clients,
 			Actor: &ateapipb.ObjectRef{Atespace: demoAtespace, Name: actorID},
 		})
 		if err == nil {
-			if resp.GetActor().GetStatus() == expectedStatus {
+			if resp.GetStatus() == expectedStatus {
 				t.Logf("Actor %q reached status %v", actorID, expectedStatus)
 				return
 			}

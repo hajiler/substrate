@@ -27,7 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 )
 
-func (s *Service) GetActor(ctx context.Context, req *ateapipb.GetActorRequest) (*ateapipb.GetActorResponse, error) {
+func (s *Service) GetActor(ctx context.Context, req *ateapipb.GetActorRequest) (*ateapipb.Actor, error) {
 	if err := validateGetActorRequest(req); err != nil {
 		return nil, err
 	}
@@ -37,9 +37,7 @@ func (s *Service) GetActor(ctx context.Context, req *ateapipb.GetActorRequest) (
 	} else if err != nil {
 		return nil, fmt.Errorf("while getting actor from DB: %w", err)
 	}
-	return &ateapipb.GetActorResponse{
-		Actor: actor,
-	}, nil
+	return actor, nil
 }
 
 func validateGetActorRequest(req *ateapipb.GetActorRequest) error {
