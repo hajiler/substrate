@@ -45,7 +45,7 @@ func TestActorLifecycle(t *testing.T) {
 	clients := e2e.GetClients()
 
 	// CreateActor requires the atespace to exist first.
-	_, _ = clients.SubstrateAPI.CreateAtespace(ctx, &ateapipb.CreateAtespaceRequest{Name: demoAtespace})
+	_, _ = clients.SubstrateAPI.CreateAtespace(ctx, &ateapipb.CreateAtespaceRequest{Atespace: &ateapipb.Atespace{Metadata: &ateapipb.ResourceMetadata{Name: demoAtespace}}})
 
 	// Create actor template.
 	at, err := createActorTemplate(ctx, t, clients, nsObj, v1alpha1.SnapshotScopeFull, v1alpha1.SnapshotScopeFull)
@@ -142,7 +142,7 @@ func TestDurableDirLifecycle(t *testing.T) {
 			clients := e2e.GetClients()
 
 			// CreateActor requires the atespace to exist first.
-			_, _ = clients.SubstrateAPI.CreateAtespace(ctx, &ateapipb.CreateAtespaceRequest{Name: demoAtespace})
+			_, _ = clients.SubstrateAPI.CreateAtespace(ctx, &ateapipb.CreateAtespaceRequest{Atespace: &ateapipb.Atespace{Metadata: &ateapipb.ResourceMetadata{Name: demoAtespace}}})
 
 			// Create actor template.
 			at, err := createActorTemplate(ctx, t, clients, nsObj, tc.onCommit, tc.onPause)
@@ -156,15 +156,15 @@ func TestDurableDirLifecycle(t *testing.T) {
 			actorID := "durabledir-lifecycle" + "-" + nsObj.Name
 
 			t.Logf("Creating Actor %q using Substrate API...", actorID)
-			createResp, err := clients.SubstrateAPI.CreateActor(ctx, &ateapipb.CreateActorRequest{
-				Actor:                  &ateapipb.ObjectRef{Atespace: demoAtespace, Name: actorID},
+			createResp, err := clients.SubstrateAPI.CreateActor(ctx, &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+				Metadata:               &ateapipb.ResourceMetadata{Atespace: demoAtespace, Name: actorID},
 				ActorTemplateNamespace: nsObj.Name,
 				ActorTemplateName:      at.Name,
-			})
+			}})
 			if err != nil {
 				t.Fatalf("failed to create Actor: %v", err)
 			}
-			t.Logf("Successfully created Actor: %s", createResp.GetActor().GetMetadata().GetName())
+			t.Logf("Successfully created Actor: %s", createResp.GetMetadata().GetName())
 			defer func() {
 				clients.SubstrateAPI.DeleteActor(ctx, &ateapipb.DeleteActorRequest{
 					Actor: &ateapipb.ObjectRef{Atespace: demoAtespace, Name: actorID},
@@ -258,15 +258,15 @@ func createActor(ctx context.Context, t *testing.T, clients *e2e.Clients, nsObj 
 	actorID := "demo-actor-1-" + nsObj.Name
 
 	t.Logf("Creating Actor %q using Substrate API...", actorID)
-	createResp, err := clients.SubstrateAPI.CreateActor(ctx, &ateapipb.CreateActorRequest{
-		Actor:                  &ateapipb.ObjectRef{Atespace: demoAtespace, Name: actorID},
+	createResp, err := clients.SubstrateAPI.CreateActor(ctx, &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+		Metadata:               &ateapipb.ResourceMetadata{Atespace: demoAtespace, Name: actorID},
 		ActorTemplateNamespace: nsObj.Name,
 		ActorTemplateName:      at.Name,
-	})
+	}})
 	if err != nil {
 		t.Fatalf("failed to create Actor: %v", err)
 	}
-	t.Logf("Successfully created Actor: %s", createResp.GetActor().GetMetadata().GetName())
+	t.Logf("Successfully created Actor: %s", createResp.GetMetadata().GetName())
 	defer func() {
 		clients.SubstrateAPI.DeleteActor(ctx, &ateapipb.DeleteActorRequest{
 			Actor: &ateapipb.ObjectRef{Atespace: demoAtespace, Name: actorID},
@@ -312,11 +312,11 @@ func pauseActor(ctx context.Context, t *testing.T, clients *e2e.Clients, nsObj *
 
 	// Creating an actor
 	t.Logf("Creating Actor %q...", actorID)
-	if _, err := clients.SubstrateAPI.CreateActor(ctx, &ateapipb.CreateActorRequest{
-		Actor:                  &ateapipb.ObjectRef{Atespace: demoAtespace, Name: actorID},
+	if _, err := clients.SubstrateAPI.CreateActor(ctx, &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+		Metadata:               &ateapipb.ResourceMetadata{Atespace: demoAtespace, Name: actorID},
 		ActorTemplateNamespace: nsObj.Name,
 		ActorTemplateName:      at.Name,
-	}); err != nil {
+	}}); err != nil {
 		t.Fatalf("failed to create Actor: %v", err)
 	}
 	waitForActorStatus(ctx, t, clients, actorID, ateapipb.Actor_STATUS_SUSPENDED)
@@ -400,11 +400,11 @@ func suspendActor(ctx context.Context, t *testing.T, clients *e2e.Clients, nsObj
 
 	// Creating an actor
 	t.Logf("Creating Actor %q...", actorID)
-	if _, err := clients.SubstrateAPI.CreateActor(ctx, &ateapipb.CreateActorRequest{
-		Actor:                  &ateapipb.ObjectRef{Atespace: demoAtespace, Name: actorID},
+	if _, err := clients.SubstrateAPI.CreateActor(ctx, &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+		Metadata:               &ateapipb.ResourceMetadata{Atespace: demoAtespace, Name: actorID},
 		ActorTemplateNamespace: nsObj.Name,
 		ActorTemplateName:      at.Name,
-	}); err != nil {
+	}}); err != nil {
 		t.Fatalf("failed to create Actor: %v", err)
 	}
 	waitForActorStatus(ctx, t, clients, actorID, ateapipb.Actor_STATUS_SUSPENDED)

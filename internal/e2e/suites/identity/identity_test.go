@@ -160,12 +160,12 @@ func waitForGolden(t *testing.T, ctx context.Context, clients *e2e.Clients) stri
 func createAndResumeActor(t *testing.T, ctx context.Context, clients *e2e.Clients, id string) {
 	t.Helper()
 	// CreateActor requires the atespace to exist first.
-	_, _ = clients.SubstrateAPI.CreateAtespace(ctx, &ateapipb.CreateAtespaceRequest{Name: probeNamespace})
-	if _, err := clients.SubstrateAPI.CreateActor(ctx, &ateapipb.CreateActorRequest{
-		Actor:                  &ateapipb.ObjectRef{Atespace: probeNamespace, Name: id},
+	_, _ = clients.SubstrateAPI.CreateAtespace(ctx, &ateapipb.CreateAtespaceRequest{Atespace: &ateapipb.Atespace{Metadata: &ateapipb.ResourceMetadata{Name: probeNamespace}}})
+	if _, err := clients.SubstrateAPI.CreateActor(ctx, &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+		Metadata:               &ateapipb.ResourceMetadata{Atespace: probeNamespace, Name: id},
 		ActorTemplateNamespace: probeNamespace,
 		ActorTemplateName:      probeTemplate,
-	}); err != nil {
+	}}); err != nil {
 		t.Fatalf("CreateActor %q: %v", id, err)
 	}
 	t.Cleanup(func() {

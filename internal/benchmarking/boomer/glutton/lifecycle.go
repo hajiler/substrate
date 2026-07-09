@@ -186,7 +186,11 @@ func (u *gluttonUser) ref() *ateapipb.ObjectRef {
 func (u *gluttonUser) ensureAtespace(ctx context.Context) error {
 	return u.tracedCall(ctx, "CreateAtespace", func(callCtx context.Context, tr *metadata.MD) error {
 		_, err := u.cfg.APIStub.CreateAtespace(callCtx, &ateapipb.CreateAtespaceRequest{
-			Name: u.cfg.Atespace,
+			Atespace: &ateapipb.Atespace{
+				Metadata: &ateapipb.ResourceMetadata{
+					Name: u.cfg.Atespace,
+				},
+			},
 		}, grpc.Trailer(tr))
 		if err == nil {
 			return nil
@@ -201,9 +205,11 @@ func (u *gluttonUser) ensureAtespace(ctx context.Context) error {
 func (u *gluttonUser) create(ctx context.Context) error {
 	return u.tracedCall(ctx, "CreateActor", func(callCtx context.Context, tr *metadata.MD) error {
 		_, err := u.cfg.APIStub.CreateActor(callCtx, &ateapipb.CreateActorRequest{
-			Actor:                  u.ref(),
-			ActorTemplateNamespace: templateNS,
-			ActorTemplateName:      templateName,
+			Actor: &ateapipb.Actor{
+				Metadata:               &ateapipb.ResourceMetadata{Atespace: u.cfg.Atespace, Name: u.actorID},
+				ActorTemplateNamespace: templateNS,
+				ActorTemplateName:      templateName,
+			},
 		}, grpc.Trailer(tr))
 		return err
 	})

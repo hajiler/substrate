@@ -46,6 +46,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/testing/protocmp"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -354,7 +355,7 @@ func setupTest(t *testing.T, ns string) *testContext {
 	}
 
 	// CreateActor now requires the atespace to exist first.
-	if _, err := client.CreateAtespace(context.Background(), &ateapipb.CreateAtespaceRequest{Name: testAtespace}); err != nil {
+	if _, err := client.CreateAtespace(context.Background(), &ateapipb.CreateAtespaceRequest{Atespace: &ateapipb.Atespace{Metadata: &ateapipb.ResourceMetadata{Name: testAtespace}}}); err != nil {
 		conn.Close()
 		grpcServer.Stop()
 		cancel()
@@ -411,7 +412,7 @@ func createTemplate(t *testing.T, tc *testContext, ns string) {
 // createAtespace creates an atespace via the API.
 func createAtespace(t *testing.T, tc *testContext, name string) {
 	t.Helper()
-	if _, err := tc.client.CreateAtespace(context.Background(), &ateapipb.CreateAtespaceRequest{Name: name}); err != nil {
+	if _, err := tc.client.CreateAtespace(context.Background(), &ateapipb.CreateAtespaceRequest{Atespace: &ateapipb.Atespace{Metadata: &ateapipb.ResourceMetadata{Name: name}}}); err != nil {
 		t.Fatalf("CreateAtespace(%s) failed: %v", name, err)
 	}
 }
@@ -697,31 +698,44 @@ func TestCreateActor_Success(t *testing.T) {
 
 	createTemplate(t, tc, ns)
 
-	createResp, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{
-		Actor:                  &ateapipb.ObjectRef{Atespace: testAtespace, Name: "id1"},
+	createResp, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+		Metadata: &ateapipb.ResourceMetadata{
+			Atespace:   testAtespace,
+			Name:       "id1",
+			Uid:        "caller-supplied-uid",
+			Version:    999,
+			CreateTime: timestamppb.New(time.Unix(1, 0)),
+			UpdateTime: timestamppb.New(time.Unix(1, 0)),
+		},
 		ActorTemplateNamespace: ns,
 		ActorTemplateName:      "tmpl1",
 		WorkerSelector:         &ateapipb.Selector{MatchLabels: map[string]string{"tier": "free"}},
-	})
+		Status:                 ateapipb.Actor_STATUS_RUNNING,
+		AteomPodNamespace:      "caller-ns",
+		AteomPodName:           "caller-pod",
+		WorkerPoolName:         "caller-pool",
+	}})
 	if err != nil {
 		t.Fatalf("CreateActor failed: %v", err)
 	}
 
-	want := &ateapipb.CreateActorResponse{
-		Actor: &ateapipb.Actor{
-			Metadata:               &ateapipb.ResourceMetadata{Name: "id1", Atespace: testAtespace, Version: 1},
-			ActorTemplateNamespace: ns,
-			ActorTemplateName:      "tmpl1",
-			Status:                 ateapipb.Actor_STATUS_SUSPENDED,
-			WorkerSelector:         &ateapipb.Selector{MatchLabels: map[string]string{"tier": "free"}},
-		},
+	want := &ateapipb.Actor{
+		Metadata:               &ateapipb.ResourceMetadata{Name: "id1", Atespace: testAtespace, Version: 1},
+		ActorTemplateNamespace: ns,
+		ActorTemplateName:      "tmpl1",
+		Status:                 ateapipb.Actor_STATUS_SUSPENDED,
+		WorkerSelector:         &ateapipb.Selector{MatchLabels: map[string]string{"tier": "free"}},
 	}
 
 	// The diff below ignores the server-assigned uid/timestamps (non-deterministic),
-	// so assert they are populated separately.
-	md := createResp.GetActor().GetMetadata()
+	// so assert they are populated separately — and that uid is server-generated,
+	// not the caller-supplied value.
+	md := createResp.GetMetadata()
 	if md.GetUid() == "" {
 		t.Errorf("CreateActor response missing server-assigned uid")
+	}
+	if md.GetUid() == "caller-supplied-uid" {
+		t.Errorf("CreateActor echoed caller-supplied uid instead of generating one")
 	}
 	if md.GetCreateTime() == nil {
 		t.Errorf("CreateActor response missing create_time")
@@ -741,11 +755,11 @@ func TestCreateActor_TemplateNotFound(t *testing.T) {
 	tc := setupTest(t, ns)
 	defer tc.cleanup()
 
-	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{
-		Actor:                  &ateapipb.ObjectRef{Atespace: testAtespace, Name: "id1"},
+	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+		Metadata:               &ateapipb.ResourceMetadata{Atespace: testAtespace, Name: "id1"},
 		ActorTemplateNamespace: ns,
 		ActorTemplateName:      "non-existent",
-	})
+	}})
 	assertGrpcError(t, err, codes.FailedPrecondition, fmt.Sprintf("ActorTemplate %s/non-existent not found", ns))
 }
 
@@ -757,20 +771,20 @@ func TestCreateActor_Duplicate(t *testing.T) {
 
 	createTemplate(t, tc, ns)
 
-	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{
-		Actor:                  &ateapipb.ObjectRef{Atespace: testAtespace, Name: "id1"},
+	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+		Metadata:               &ateapipb.ResourceMetadata{Atespace: testAtespace, Name: "id1"},
 		ActorTemplateNamespace: ns,
 		ActorTemplateName:      "tmpl1",
-	})
+	}})
 	if err != nil {
 		t.Fatalf("first CreateActor failed: %v", err)
 	}
 
-	_, err = tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{
-		Actor:                  &ateapipb.ObjectRef{Atespace: testAtespace, Name: "id1"},
+	_, err = tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+		Metadata:               &ateapipb.ResourceMetadata{Atespace: testAtespace, Name: "id1"},
 		ActorTemplateNamespace: ns,
 		ActorTemplateName:      "tmpl1",
-	})
+	}})
 	assertGrpcError(t, err, codes.AlreadyExists, "Actor id1 already exists")
 }
 
@@ -784,11 +798,11 @@ func TestGetActor_Found(t *testing.T) {
 
 	name := "id1"
 
-	createResp, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{
-		Actor:                  &ateapipb.ObjectRef{Atespace: testAtespace, Name: name},
+	createResp, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+		Metadata:               &ateapipb.ResourceMetadata{Atespace: testAtespace, Name: name},
 		ActorTemplateNamespace: ns,
 		ActorTemplateName:      "tmpl1",
-	})
+	}})
 	if err != nil {
 		t.Fatalf("CreateActor failed: %v", err)
 	}
@@ -800,7 +814,7 @@ func TestGetActor_Found(t *testing.T) {
 		t.Fatalf("GetActor failed: %v", err)
 	}
 
-	want := createResp.GetActor()
+	want := createResp
 
 	if diff := cmp.Diff(want, getResp, protocmp.Transform()); diff != "" {
 		t.Errorf("GetActor response mismatch (-want +got):\n%s", diff)
@@ -835,19 +849,19 @@ func TestListActors(t *testing.T) {
 
 	createTemplate(t, tc, ns)
 
-	resp1, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{
-		Actor:                  &ateapipb.ObjectRef{Atespace: testAtespace, Name: "id1"},
+	resp1, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+		Metadata:               &ateapipb.ResourceMetadata{Atespace: testAtespace, Name: "id1"},
 		ActorTemplateNamespace: ns,
 		ActorTemplateName:      "tmpl1",
-	})
+	}})
 	if err != nil {
 		t.Fatalf("CreateActor 1 failed: %v", err)
 	}
-	resp2, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{
-		Actor:                  &ateapipb.ObjectRef{Atespace: testAtespace, Name: "id2"},
+	resp2, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+		Metadata:               &ateapipb.ResourceMetadata{Atespace: testAtespace, Name: "id2"},
 		ActorTemplateNamespace: ns,
 		ActorTemplateName:      "tmpl1",
-	})
+	}})
 	if err != nil {
 		t.Fatalf("CreateActor 2 failed: %v", err)
 	}
@@ -862,8 +876,8 @@ func TestListActors(t *testing.T) {
 	}
 
 	want := []*ateapipb.Actor{
-		resp1.GetActor(),
-		resp2.GetActor(),
+		resp1,
+		resp2,
 	}
 
 	opts := []cmp.Option{
@@ -891,15 +905,15 @@ func TestListActors_ByAtespace(t *testing.T) {
 	createAtespace(t, tc, "team-b")
 
 	create := func(atespace, name string) *ateapipb.Actor {
-		resp, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{
-			Actor:                  &ateapipb.ObjectRef{Atespace: atespace, Name: name},
+		resp, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+			Metadata:               &ateapipb.ResourceMetadata{Atespace: atespace, Name: name},
 			ActorTemplateNamespace: ns,
 			ActorTemplateName:      "tmpl1",
-		})
+		}})
 		if err != nil {
 			t.Fatalf("CreateActor(%s, atespace=%q) failed: %v", name, atespace, err)
 		}
-		return resp.GetActor()
+		return resp
 	}
 	a1 := create("team-a", "id1")
 	a2 := create("team-a", "id2")
@@ -948,11 +962,11 @@ func TestListActors_AllAtespaces(t *testing.T) {
 	createAtespace(t, tc, "team-b")
 
 	create := func(atespace, name string) {
-		if _, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{
-			Actor:                  &ateapipb.ObjectRef{Atespace: atespace, Name: name},
+		if _, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+			Metadata:               &ateapipb.ResourceMetadata{Atespace: atespace, Name: name},
 			ActorTemplateNamespace: ns,
 			ActorTemplateName:      "tmpl1",
-		}); err != nil {
+		}}); err != nil {
 			t.Fatalf("CreateActor(%s, atespace=%q) failed: %v", name, atespace, err)
 		}
 	}
@@ -986,15 +1000,15 @@ func TestListActors_Pagination(t *testing.T) {
 
 	var want []*ateapipb.Actor
 	for i := 0; i < 5; i++ {
-		resp, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{
-			Actor:                  &ateapipb.ObjectRef{Atespace: testAtespace, Name: fmt.Sprintf("name%d", i)},
+		resp, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+			Metadata:               &ateapipb.ResourceMetadata{Atespace: testAtespace, Name: fmt.Sprintf("name%d", i)},
 			ActorTemplateNamespace: ns,
 			ActorTemplateName:      "tmpl1",
-		})
+		}})
 		if err != nil {
 			t.Fatalf("CreateActor %d failed: %v", i, err)
 		}
-		want = append(want, resp.GetActor())
+		want = append(want, resp)
 	}
 
 	var allActors []*ateapipb.Actor
@@ -1122,11 +1136,11 @@ func TestResumeActor(t *testing.T) {
 	createWorkerPod(t, tc, ns, "worker-1", "node1", "pool1")
 
 	name := "id1"
-	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{
-		Actor:                  &ateapipb.ObjectRef{Atespace: testAtespace, Name: name},
+	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+		Metadata:               &ateapipb.ResourceMetadata{Atespace: testAtespace, Name: name},
 		ActorTemplateNamespace: ns,
 		ActorTemplateName:      "tmpl1",
-	})
+	}})
 	if err != nil {
 		t.Fatalf("CreateActor failed: %v", err)
 	}
@@ -1245,11 +1259,11 @@ func TestResumeActorResolvesValueFromEnv(t *testing.T) {
 	})
 	createWorkerPod(t, tc, ns, "worker-1", "node1", "pool1")
 
-	_, err = tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{
-		Actor:                  &ateapipb.ObjectRef{Atespace: testAtespace, Name: "id1"},
+	_, err = tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+		Metadata:               &ateapipb.ResourceMetadata{Atespace: testAtespace, Name: "id1"},
 		ActorTemplateNamespace: ns,
 		ActorTemplateName:      "tmpl1",
-	})
+	}})
 	if err != nil {
 		t.Fatalf("CreateActor failed: %v", err)
 	}
@@ -1299,16 +1313,16 @@ func TestResumeActor_NoWorkers(t *testing.T) {
 
 	createTemplate(t, tc, ns)
 
-	createResp, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{
-		Actor:                  &ateapipb.ObjectRef{Atespace: testAtespace, Name: "id1"},
+	createResp, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+		Metadata:               &ateapipb.ResourceMetadata{Atespace: testAtespace, Name: "id1"},
 		ActorTemplateNamespace: ns,
 		ActorTemplateName:      "tmpl1",
-	})
+	}})
 	if err != nil {
 		t.Fatalf("CreateActor failed: %v", err)
 	}
 
-	name := createResp.GetActor().GetMetadata().GetName()
+	name := createResp.GetMetadata().GetName()
 
 	_, err = tc.client.ResumeActor(context.Background(), &ateapipb.ResumeActorRequest{
 		Actor: &ateapipb.ObjectRef{Atespace: testAtespace, Name: name},
@@ -1333,14 +1347,14 @@ func TestResumeActor_MultiPoolSelector(t *testing.T) {
 	createWorkerPod(t, tc, ns, "worker-a", "node1", "pool-a")
 	createWorkerPod(t, tc, ns, "worker-b", "node1", "pool-b")
 
-	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{
-		Actor:                  &ateapipb.ObjectRef{Atespace: testAtespace, Name: "id1"},
+	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+		Metadata:               &ateapipb.ResourceMetadata{Atespace: testAtespace, Name: "id1"},
 		ActorTemplateNamespace: ns,
 		ActorTemplateName:      "tmpl1",
 		WorkerSelector: &ateapipb.Selector{
 			MatchLabels: map[string]string{"tier": "b"},
 		},
-	})
+	}})
 	if err != nil {
 		t.Fatalf("CreateActor failed: %v", err)
 	}
@@ -1384,14 +1398,14 @@ func TestResumeActor_RequiresBothSelectorsToMatch(t *testing.T) {
 	createWorkerPod(t, tc, ns, "worker-template-only", "node1", "pool-template-only")
 	createWorkerPod(t, tc, ns, "worker-actor-only", "node1", "pool-actor-only")
 
-	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{
-		Actor:                  &ateapipb.ObjectRef{Atespace: testAtespace, Name: "id1"},
+	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+		Metadata:               &ateapipb.ResourceMetadata{Atespace: testAtespace, Name: "id1"},
 		ActorTemplateNamespace: ns,
 		ActorTemplateName:      "tmpl1",
 		WorkerSelector: &ateapipb.Selector{
 			MatchLabels: map[string]string{"tier": "b"},
 		},
-	})
+	}})
 	if err != nil {
 		t.Fatalf("CreateActor failed: %v", err)
 	}
@@ -1430,11 +1444,11 @@ func TestResumeActor_Reentrancy(t *testing.T) {
 	createWorkerPod(t, tc, ns, "worker-1", "node1", "pool1")
 
 	name := "id1"
-	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{
-		Actor:                  &ateapipb.ObjectRef{Atespace: testAtespace, Name: name},
+	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+		Metadata:               &ateapipb.ResourceMetadata{Atespace: testAtespace, Name: name},
 		ActorTemplateNamespace: ns,
 		ActorTemplateName:      "tmpl1",
-	})
+	}})
 	if err != nil {
 		t.Fatalf("CreateActor failed: %v", err)
 	}
@@ -1503,11 +1517,11 @@ func TestSuspendActor(t *testing.T) {
 	createWorkerPod(t, tc, ns, "worker-1", "node1", "pool1")
 	name := "id1"
 
-	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{
-		Actor:                  &ateapipb.ObjectRef{Atespace: testAtespace, Name: name},
+	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+		Metadata:               &ateapipb.ResourceMetadata{Atespace: testAtespace, Name: name},
 		ActorTemplateNamespace: ns,
 		ActorTemplateName:      "tmpl1",
-	})
+	}})
 	if err != nil {
 		t.Fatalf("CreateActor failed: %v", err)
 	}
@@ -1586,11 +1600,11 @@ func TestPauseActor(t *testing.T) {
 	createWorkerPod(t, tc, ns, "worker-1", "node1", "pool1")
 
 	name := "id1"
-	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{
-		Actor:                  &ateapipb.ObjectRef{Atespace: testAtespace, Name: name},
+	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+		Metadata:               &ateapipb.ResourceMetadata{Atespace: testAtespace, Name: name},
 		ActorTemplateNamespace: ns,
 		ActorTemplateName:      "tmpl1",
-	})
+	}})
 	if err != nil {
 		t.Fatalf("CreateActor failed: %v", err)
 	}
@@ -1659,14 +1673,14 @@ func TestUpdateActor_Success(t *testing.T) {
 
 	createTemplate(t, tc, ns)
 
-	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{
-		Actor:                  &ateapipb.ObjectRef{Atespace: testAtespace, Name: "id1"},
+	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+		Metadata:               &ateapipb.ResourceMetadata{Atespace: testAtespace, Name: "id1"},
 		ActorTemplateNamespace: ns,
 		ActorTemplateName:      "tmpl1",
 		WorkerSelector: &ateapipb.Selector{
 			MatchLabels: map[string]string{"tier": "free"},
 		},
-	})
+	}})
 	if err != nil {
 		t.Fatalf("CreateActor failed: %v", err)
 	}
@@ -1742,12 +1756,12 @@ func TestResumeActor_ReleasesStaleWorkerWhenPoolBecomesIneligible(t *testing.T) 
 	createWorkerPod(t, tc, ns, "worker-b", "node1", "pool-b")
 
 	name := "id1"
-	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{
-		Actor:                  &ateapipb.ObjectRef{Atespace: testAtespace, Name: name},
+	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+		Metadata:               &ateapipb.ResourceMetadata{Atespace: testAtespace, Name: name},
 		ActorTemplateNamespace: ns,
 		ActorTemplateName:      "tmpl1",
 		WorkerSelector:         &ateapipb.Selector{MatchLabels: map[string]string{"tier": "a"}},
-	})
+	}})
 	if err != nil {
 		t.Fatalf("CreateActor failed: %v", err)
 	}
@@ -1842,14 +1856,14 @@ func TestUpdateActor_ReassignsPoolAcrossSuspendResume(t *testing.T) {
 	createWorkerPod(t, tc, ns, "worker-b", "node1", "pool-b")
 
 	name := "id1"
-	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{
-		Actor:                  &ateapipb.ObjectRef{Atespace: testAtespace, Name: name},
+	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+		Metadata:               &ateapipb.ResourceMetadata{Atespace: testAtespace, Name: name},
 		ActorTemplateNamespace: ns,
 		ActorTemplateName:      "tmpl1",
 		WorkerSelector: &ateapipb.Selector{
 			MatchLabels: map[string]string{"tier": "a"},
 		},
-	})
+	}})
 	if err != nil {
 		t.Fatalf("CreateActor failed: %v", err)
 	}
@@ -1917,90 +1931,90 @@ func TestValidation(t *testing.T) {
 			wantMsg string
 		}{{
 			"missing actor_template_namespace",
-			&ateapipb.CreateActorRequest{Actor: &ateapipb.ObjectRef{Atespace: "ns1", Name: "id1"}, ActorTemplateName: "tmpl1"},
-			"actor_template_namespace: Required value",
+			&ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{Metadata: &ateapipb.ResourceMetadata{Atespace: "ns1", Name: "id1"}, ActorTemplateName: "tmpl1"}},
+			"actor.actor_template_namespace: Required value",
 		}, {
 			"invalid actor_template_namespace",
-			&ateapipb.CreateActorRequest{
-				Actor:                  &ateapipb.ObjectRef{Atespace: "ns1", Name: "id1"},
+			&ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+				Metadata:               &ateapipb.ResourceMetadata{Atespace: "ns1", Name: "id1"},
 				ActorTemplateNamespace: "invalid value",
 				ActorTemplateName:      "tmpl1",
-			},
-			"actor_template_namespace: Invalid value",
+			}},
+			"actor.actor_template_namespace: Invalid value",
 		}, {
 			"missing actor_template_name",
-			&ateapipb.CreateActorRequest{Actor: &ateapipb.ObjectRef{Atespace: "ns1", Name: "id1"}, ActorTemplateNamespace: "ns1"},
-			"actor_template_name: Required value",
+			&ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{Metadata: &ateapipb.ResourceMetadata{Atespace: "ns1", Name: "id1"}, ActorTemplateNamespace: "ns1"}},
+			"actor.actor_template_name: Required value",
 		}, {
 			"invalid actor_template_name",
-			&ateapipb.CreateActorRequest{
-				Actor:                  &ateapipb.ObjectRef{Atespace: "ns1", Name: "id1"},
+			&ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+				Metadata:               &ateapipb.ResourceMetadata{Atespace: "ns1", Name: "id1"},
 				ActorTemplateNamespace: "ns1",
 				ActorTemplateName:      "invalid value",
-			},
-			"actor_template_name: Invalid value",
+			}},
+			"actor.actor_template_name: Invalid value",
 		}, {
 			"missing actor",
-			&ateapipb.CreateActorRequest{ActorTemplateNamespace: "ns1", ActorTemplateName: "tmpl1"},
+			&ateapipb.CreateActorRequest{},
 			"actor: Required value",
 		}, {
 			"missing actor.atespace",
-			&ateapipb.CreateActorRequest{
-				Actor:                  &ateapipb.ObjectRef{Name: "id1"},
+			&ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+				Metadata:               &ateapipb.ResourceMetadata{Name: "id1"},
 				ActorTemplateNamespace: "ns1",
 				ActorTemplateName:      "tmpl1",
-			},
-			"actor.atespace: Required value",
+			}},
+			"actor.metadata.atespace: Required value",
 		}, {
 			"invalid actor.atespace",
-			&ateapipb.CreateActorRequest{
-				Actor:                  &ateapipb.ObjectRef{Atespace: "NS1", Name: "id1"},
+			&ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+				Metadata:               &ateapipb.ResourceMetadata{Atespace: "NS1", Name: "id1"},
 				ActorTemplateNamespace: "ns1",
 				ActorTemplateName:      "tmpl1",
-			},
-			"actor.atespace: Invalid value",
+			}},
+			"actor.metadata.atespace: Invalid value",
 		}, {
 			"missing actor.name",
-			&ateapipb.CreateActorRequest{
-				Actor:                  &ateapipb.ObjectRef{Atespace: "ns1"},
+			&ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+				Metadata:               &ateapipb.ResourceMetadata{Atespace: "ns1"},
 				ActorTemplateNamespace: "ns1",
 				ActorTemplateName:      "tmpl1",
-			},
-			"actor.name: Required value",
+			}},
+			"actor.metadata.name: Required value",
 		}, {
 			"invalid actor.name",
-			&ateapipb.CreateActorRequest{
-				Actor:                  &ateapipb.ObjectRef{Atespace: "ns1", Name: "ID1"},
+			&ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+				Metadata:               &ateapipb.ResourceMetadata{Atespace: "ns1", Name: "ID1"},
 				ActorTemplateNamespace: "ns1",
 				ActorTemplateName:      "tmpl1",
-			},
-			"actor.name: Invalid value",
+			}},
+			"actor.metadata.name: Invalid value",
 		}, {
 			"invalid worker_selector label key",
-			&ateapipb.CreateActorRequest{
-				Actor:                  &ateapipb.ObjectRef{Atespace: "ns1", Name: "id1"},
+			&ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+				Metadata:               &ateapipb.ResourceMetadata{Atespace: "ns1", Name: "id1"},
 				ActorTemplateNamespace: "ns1",
 				ActorTemplateName:      "tmpl1",
 				WorkerSelector:         &ateapipb.Selector{MatchLabels: map[string]string{"bad key!": "x"}},
-			},
-			`worker_selector.match_labels\[bad key!\]: Invalid value`,
+			}},
+			`actor.worker_selector.match_labels\[bad key!\]: Invalid value`,
 		}, {
 			"invalid worker_selector label value",
-			&ateapipb.CreateActorRequest{
-				Actor:                  &ateapipb.ObjectRef{Atespace: "ns1", Name: "id1"},
+			&ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+				Metadata:               &ateapipb.ResourceMetadata{Atespace: "ns1", Name: "id1"},
 				ActorTemplateNamespace: "ns1",
 				ActorTemplateName:      "tmpl1",
 				WorkerSelector:         &ateapipb.Selector{MatchLabels: map[string]string{"tier": "not valid!"}},
-			},
-			`worker_selector.match_labels\[tier\]: Invalid value`,
+			}},
+			`actor.worker_selector.match_labels\[tier\]: Invalid value`,
 		}, {
 			"too many worker_selector.match_labels",
-			&ateapipb.CreateActorRequest{
-				Actor:                  &ateapipb.ObjectRef{Atespace: "ns1", Name: "id1"},
+			&ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+				Metadata:               &ateapipb.ResourceMetadata{Atespace: "ns1", Name: "id1"},
 				ActorTemplateNamespace: "ns1",
 				ActorTemplateName:      "tmpl1",
-				WorkerSelector:         &ateapipb.Selector{MatchLabels: selectorLabelsOfSize(11)}},
-			"worker_selector.match_labels: Too many",
+				WorkerSelector:         &ateapipb.Selector{MatchLabels: selectorLabelsOfSize(11)}}},
+			"actor.worker_selector.match_labels: Too many",
 		}}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
@@ -2293,11 +2307,11 @@ func TestResumeActor_LockConflict(t *testing.T) {
 	createWorkerPod(t, tc, ns, "worker-1", "node1", "pool1")
 
 	name := "id1"
-	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{
-		Actor:                  &ateapipb.ObjectRef{Atespace: testAtespace, Name: name},
+	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+		Metadata:               &ateapipb.ResourceMetadata{Atespace: testAtespace, Name: name},
 		ActorTemplateNamespace: ns,
 		ActorTemplateName:      "tmpl1",
-	})
+	}})
 	if err != nil {
 		t.Fatalf("CreateActor failed: %v", err)
 	}
@@ -2340,11 +2354,11 @@ func TestResumeActor_DanglingWorker(t *testing.T) {
 	createWorkerPod(t, tc, ns, "worker-a", "node1", "pool1")
 
 	name := "id1"
-	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{
-		Actor:                  &ateapipb.ObjectRef{Atespace: testAtespace, Name: name},
+	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+		Metadata:               &ateapipb.ResourceMetadata{Atespace: testAtespace, Name: name},
 		ActorTemplateNamespace: ns,
 		ActorTemplateName:      "tmpl1",
-	})
+	}})
 	if err != nil {
 		t.Fatalf("CreateActor failed: %v", err)
 	}
@@ -2420,11 +2434,11 @@ func TestSuspendActor_DanglingWorker(t *testing.T) {
 	createWorkerPod(t, tc, ns, "worker-1", "node1", "pool1")
 
 	name := "id1"
-	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{
-		Actor:                  &ateapipb.ObjectRef{Atespace: testAtespace, Name: name},
+	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+		Metadata:               &ateapipb.ResourceMetadata{Atespace: testAtespace, Name: name},
 		ActorTemplateNamespace: ns,
 		ActorTemplateName:      "tmpl1",
-	})
+	}})
 	if err != nil {
 		t.Fatalf("CreateActor failed: %v", err)
 	}
@@ -2475,11 +2489,11 @@ func TestDeleteActor_Success(t *testing.T) {
 
 	createTemplate(t, tc, ns)
 
-	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{
-		Actor:                  &ateapipb.ObjectRef{Atespace: testAtespace, Name: "id1"},
+	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+		Metadata:               &ateapipb.ResourceMetadata{Atespace: testAtespace, Name: "id1"},
 		ActorTemplateNamespace: ns,
 		ActorTemplateName:      "tmpl1",
-	})
+	}})
 	if err != nil {
 		t.Fatalf("CreateActor failed: %v", err)
 	}
@@ -2512,11 +2526,11 @@ func TestDeleteActor_NotSuspended(t *testing.T) {
 	createTemplate(t, tc, ns)
 	createWorkerPod(t, tc, ns, "worker-1", "node1", "pool1")
 
-	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{
-		Actor:                  &ateapipb.ObjectRef{Atespace: testAtespace, Name: "id1"},
+	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+		Metadata:               &ateapipb.ResourceMetadata{Atespace: testAtespace, Name: "id1"},
 		ActorTemplateNamespace: ns,
 		ActorTemplateName:      "tmpl1",
-	})
+	}})
 	if err != nil {
 		t.Fatalf("CreateActor failed: %v", err)
 	}
@@ -2590,11 +2604,11 @@ func TestCreateActor_AtespaceNotFound(t *testing.T) {
 
 	// The template exists, but "missing-as" was never created. The template
 	// check fires first, so reaching this error proves the atespace check ran.
-	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{
-		Actor:                  &ateapipb.ObjectRef{Atespace: "missing-as", Name: "id1"},
+	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+		Metadata:               &ateapipb.ResourceMetadata{Atespace: "missing-as", Name: "id1"},
 		ActorTemplateNamespace: ns,
 		ActorTemplateName:      "tmpl1",
-	})
+	}})
 	assertGrpcError(t, err, codes.FailedPrecondition, "Atespace missing-as not found")
 }
 
@@ -2604,21 +2618,42 @@ func TestCreateAtespace_Success(t *testing.T) {
 	defer tc.cleanup()
 	createTemplate(t, tc, ns)
 
-	resp, err := tc.client.CreateAtespace(context.Background(), &ateapipb.CreateAtespaceRequest{Name: "team-a"})
+	resp, err := tc.client.CreateAtespace(context.Background(), &ateapipb.CreateAtespaceRequest{
+		Atespace: &ateapipb.Atespace{
+			Metadata: &ateapipb.ResourceMetadata{
+				Name:       "team-a",
+				Uid:        "caller-supplied-uid",
+				Version:    999,
+				CreateTime: timestamppb.New(time.Unix(1, 0)),
+				UpdateTime: timestamppb.New(time.Unix(1, 0)),
+			},
+		},
+	})
 	if err != nil {
 		t.Fatalf("CreateAtespace failed: %v", err)
 	}
-	got := resp.GetAtespace()
-	if got.GetMetadata().GetName() != "team-a" {
-		t.Errorf("Name = %q, want team-a", got.GetMetadata().GetName())
+	md := resp.GetMetadata()
+	if md.GetName() != "team-a" {
+		t.Errorf("Name = %q, want team-a", md.GetName())
+	}
+	if md.GetAtespace() != "" {
+		t.Errorf("Atespace = %q, want empty (global-scoped)", md.GetAtespace())
+	}
+	if md.GetVersion() != 1 {
+		t.Errorf("Version = %d, want 1 (caller-set 999 must be ignored)", md.GetVersion())
+	}
+	if md.GetUid() == "" || md.GetUid() == "caller-supplied-uid" {
+		t.Errorf("uid = %q, want a server-generated value", md.GetUid())
 	}
 
-	// An actor can now be created into the new atespace.
 	if _, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{
-		Actor:                  &ateapipb.ObjectRef{Atespace: "team-a", Name: "id1"},
-		ActorTemplateNamespace: ns,
-		ActorTemplateName:      "tmpl1",
-	}); err != nil {
+		Actor: &ateapipb.Actor{
+			Metadata: &ateapipb.ResourceMetadata{
+				Atespace: "team-a",
+				Name:     "id1"},
+			ActorTemplateNamespace: ns,
+			ActorTemplateName:      "tmpl1",
+		}}); err != nil {
 		t.Errorf("CreateActor into freshly created atespace failed: %v", err)
 	}
 }
@@ -2628,10 +2663,10 @@ func TestCreateAtespace_AlreadyExists(t *testing.T) {
 	tc := setupTest(t, ns)
 	defer tc.cleanup()
 
-	if _, err := tc.client.CreateAtespace(context.Background(), &ateapipb.CreateAtespaceRequest{Name: "team-a"}); err != nil {
+	if _, err := tc.client.CreateAtespace(context.Background(), &ateapipb.CreateAtespaceRequest{Atespace: &ateapipb.Atespace{Metadata: &ateapipb.ResourceMetadata{Name: "team-a"}}}); err != nil {
 		t.Fatalf("first CreateAtespace failed: %v", err)
 	}
-	_, err := tc.client.CreateAtespace(context.Background(), &ateapipb.CreateAtespaceRequest{Name: "team-a"})
+	_, err := tc.client.CreateAtespace(context.Background(), &ateapipb.CreateAtespaceRequest{Atespace: &ateapipb.Atespace{Metadata: &ateapipb.ResourceMetadata{Name: "team-a"}}})
 	assertGrpcError(t, err, codes.AlreadyExists, "Atespace team-a already exists")
 }
 
@@ -2640,13 +2675,13 @@ func TestCreateAtespace_Validation(t *testing.T) {
 	tc := setupTest(t, ns)
 	defer tc.cleanup()
 
-	_, err := tc.client.CreateAtespace(context.Background(), &ateapipb.CreateAtespaceRequest{Name: ""})
-	assertGrpcError(t, err, codes.InvalidArgument, "name is required")
+	_, err := tc.client.CreateAtespace(context.Background(), &ateapipb.CreateAtespaceRequest{Atespace: &ateapipb.Atespace{Metadata: &ateapipb.ResourceMetadata{Name: ""}}})
+	assertGrpcError(t, err, codes.InvalidArgument, "atespace.metadata.name: Required value")
 
 	// Invalid names — uppercase/underscore plus Redis-key/SCAN metacharacters —
 	// are rejected by ValidateAtespace before any key is built (injection guard).
 	for _, bad := range []string{"Team_A", "a*", "a:b", "a/b"} {
-		_, err := tc.client.CreateAtespace(context.Background(), &ateapipb.CreateAtespaceRequest{Name: bad})
+		_, err := tc.client.CreateAtespace(context.Background(), &ateapipb.CreateAtespaceRequest{Atespace: &ateapipb.Atespace{Metadata: &ateapipb.ResourceMetadata{Name: bad}}})
 		if status.Code(err) != codes.InvalidArgument {
 			t.Errorf("CreateAtespace(%q): got code %v, want InvalidArgument (err=%v)", bad, status.Code(err), err)
 		}
@@ -2658,7 +2693,7 @@ func TestGetAtespace_Found(t *testing.T) {
 	tc := setupTest(t, ns)
 	defer tc.cleanup()
 
-	created, err := tc.client.CreateAtespace(context.Background(), &ateapipb.CreateAtespaceRequest{Name: "team-a"})
+	created, err := tc.client.CreateAtespace(context.Background(), &ateapipb.CreateAtespaceRequest{Atespace: &ateapipb.Atespace{Metadata: &ateapipb.ResourceMetadata{Name: "team-a"}}})
 	if err != nil {
 		t.Fatalf("CreateAtespace failed: %v", err)
 	}
@@ -2666,7 +2701,7 @@ func TestGetAtespace_Found(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetAtespace failed: %v", err)
 	}
-	if diff := cmp.Diff(created.GetAtespace(), resp, protocmp.Transform()); diff != "" {
+	if diff := cmp.Diff(created, resp, protocmp.Transform()); diff != "" {
 		t.Errorf("GetAtespace mismatch (-created +got):\n%s", diff)
 	}
 }
@@ -2686,7 +2721,7 @@ func TestListAtespaces(t *testing.T) {
 	defer tc.cleanup()
 
 	for _, n := range []string{"team-a", "team-b"} {
-		if _, err := tc.client.CreateAtespace(context.Background(), &ateapipb.CreateAtespaceRequest{Name: n}); err != nil {
+		if _, err := tc.client.CreateAtespace(context.Background(), &ateapipb.CreateAtespaceRequest{Atespace: &ateapipb.Atespace{Metadata: &ateapipb.ResourceMetadata{Name: n}}}); err != nil {
 			t.Fatalf("CreateAtespace(%s) failed: %v", n, err)
 		}
 	}
@@ -2711,7 +2746,7 @@ func TestDeleteAtespace_Empty_Success(t *testing.T) {
 	tc := setupTest(t, ns)
 	defer tc.cleanup()
 
-	if _, err := tc.client.CreateAtespace(context.Background(), &ateapipb.CreateAtespaceRequest{Name: "team-a"}); err != nil {
+	if _, err := tc.client.CreateAtespace(context.Background(), &ateapipb.CreateAtespaceRequest{Atespace: &ateapipb.Atespace{Metadata: &ateapipb.ResourceMetadata{Name: "team-a"}}}); err != nil {
 		t.Fatalf("CreateAtespace failed: %v", err)
 	}
 	deleted, err := tc.client.DeleteAtespace(context.Background(), &ateapipb.DeleteAtespaceRequest{Atespace: &ateapipb.ObjectRef{Name: "team-a"}})
@@ -2733,14 +2768,14 @@ func TestDeleteAtespace_NonEmpty_Rejected(t *testing.T) {
 	defer tc.cleanup()
 	createTemplate(t, tc, ns)
 
-	if _, err := tc.client.CreateAtespace(context.Background(), &ateapipb.CreateAtespaceRequest{Name: "team-a"}); err != nil {
+	if _, err := tc.client.CreateAtespace(context.Background(), &ateapipb.CreateAtespaceRequest{Atespace: &ateapipb.Atespace{Metadata: &ateapipb.ResourceMetadata{Name: "team-a"}}}); err != nil {
 		t.Fatalf("CreateAtespace failed: %v", err)
 	}
-	if _, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{
-		Actor:                  &ateapipb.ObjectRef{Atespace: "team-a", Name: "id1"},
+	if _, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+		Metadata:               &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "id1"},
 		ActorTemplateNamespace: ns,
 		ActorTemplateName:      "tmpl1",
-	}); err != nil {
+	}}); err != nil {
 		t.Fatalf("CreateActor failed: %v", err)
 	}
 	_, err := tc.client.DeleteAtespace(context.Background(), &ateapipb.DeleteAtespaceRequest{Atespace: &ateapipb.ObjectRef{Name: "team-a"}})
@@ -2763,11 +2798,11 @@ func TestDeleteAtespace_ScopedToTargetAtespace(t *testing.T) {
 	createAtespace(t, tc, "team-b")
 
 	// Actor only in team-b.
-	if _, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{
-		Actor:                  &ateapipb.ObjectRef{Atespace: "team-b", Name: "id1"},
+	if _, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+		Metadata:               &ateapipb.ResourceMetadata{Atespace: "team-b", Name: "id1"},
 		ActorTemplateNamespace: ns,
 		ActorTemplateName:      "tmpl1",
-	}); err != nil {
+	}}); err != nil {
 		t.Fatalf("CreateActor failed: %v", err)
 	}
 

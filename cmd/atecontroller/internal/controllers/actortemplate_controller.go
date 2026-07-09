@@ -83,15 +83,26 @@ func (r *ActorTemplateReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		actorID := uuid.NewString()
 
 		// Golden actors live in the reserved ate-golden system atespace.
-		_, err := r.AteClient.CreateAtespace(ctx, &ateapipb.CreateAtespaceRequest{Name: resources.GoldenActorAtespace})
+		_, err := r.AteClient.CreateAtespace(ctx, &ateapipb.CreateAtespaceRequest{
+			Atespace: &ateapipb.Atespace{
+				Metadata: &ateapipb.ResourceMetadata{
+					Name: resources.GoldenActorAtespace,
+				},
+			},
+		})
 		if err != nil && status.Code(err) != codes.AlreadyExists {
 			return ctrl.Result{}, fmt.Errorf("while ensuring atespace %q: %w", resources.GoldenActorAtespace, err)
 		}
 
 		createReq := &ateapipb.CreateActorRequest{
-			Actor:                  &ateapipb.ObjectRef{Atespace: resources.GoldenActorAtespace, Name: actorID},
-			ActorTemplateNamespace: at.ObjectMeta.Namespace,
-			ActorTemplateName:      at.ObjectMeta.Name,
+			Actor: &ateapipb.Actor{
+				Metadata: &ateapipb.ResourceMetadata{
+					Atespace: resources.GoldenActorAtespace,
+					Name:     actorID,
+				},
+				ActorTemplateNamespace: at.ObjectMeta.Namespace,
+				ActorTemplateName:      at.ObjectMeta.Name,
+			},
 		}
 		_, err = r.AteClient.CreateActor(ctx, createReq)
 		if err != nil {

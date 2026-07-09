@@ -29,7 +29,7 @@ service Control {
   rpc GetActor(GetActorRequest) returns (Actor) {}
 
   // Create a new Actor deriving from a given ActorTemplate.
-  rpc CreateActor(CreateActorRequest) returns (CreateActorResponse) {}
+  rpc CreateActor(CreateActorRequest) returns (Actor) {}
 
   // Update mutable fields on an existing Actor.
   rpc UpdateActor(UpdateActorRequest) returns (UpdateActorResponse) {}
@@ -53,7 +53,7 @@ service Control {
   rpc ListActors(ListActorsRequest) returns (ListActorsResponse) {}
 
   // Create a new Atespace. Substrate-native, stored in Redis.
-  rpc CreateAtespace(CreateAtespaceRequest) returns (CreateAtespaceResponse) {}
+  rpc CreateAtespace(CreateAtespaceRequest) returns (Atespace) {}
 
   // Get an Atespace by name.
   rpc GetAtespace(GetAtespaceRequest) returns (Atespace) {}
@@ -177,9 +177,7 @@ message ObjectRef {
 }
 
 message CreateAtespaceRequest {
-  string name = 1;
-}
-message CreateAtespaceResponse {
+  // The atespace to create.
   Atespace atespace = 1;
 }
 
@@ -202,21 +200,7 @@ message GetActorRequest {
 
 // Request to create a new Actor.
 message CreateActorRequest {
-  // The new actor's atespace and actor_id (actor_id must be a valid DNS-1123 label).
-  ObjectRef actor = 1;
-
-  // The namespace of the ActorTemplate to derive from.
-  string actor_template_namespace = 2;
-
-  // The name of the ActorTemplate to derive from.
-  string actor_template_name = 3;
-
-  // worker_selector sets the actor's placement constraint at creation time.
-  // If empty, the actor matches any pool admitted by the template's selector.
-  Selector worker_selector = 4;
-}
-
-message CreateActorResponse {
+  // The actor to create.
   Actor actor = 1;
 }
 

@@ -60,7 +60,7 @@ type ControlClient interface {
 	// Get an Actor.
 	GetActor(ctx context.Context, in *GetActorRequest, opts ...grpc.CallOption) (*Actor, error)
 	// Create a new Actor deriving from a given ActorTemplate.
-	CreateActor(ctx context.Context, in *CreateActorRequest, opts ...grpc.CallOption) (*CreateActorResponse, error)
+	CreateActor(ctx context.Context, in *CreateActorRequest, opts ...grpc.CallOption) (*Actor, error)
 	// Update mutable fields on an existing Actor.
 	UpdateActor(ctx context.Context, in *UpdateActorRequest, opts ...grpc.CallOption) (*UpdateActorResponse, error)
 	// Suspend a given actor to a new snapshot.
@@ -76,7 +76,7 @@ type ControlClient interface {
 	// List all actors currently reflected in redis.
 	ListActors(ctx context.Context, in *ListActorsRequest, opts ...grpc.CallOption) (*ListActorsResponse, error)
 	// Create a new Atespace. Substrate-native, stored in Redis.
-	CreateAtespace(ctx context.Context, in *CreateAtespaceRequest, opts ...grpc.CallOption) (*CreateAtespaceResponse, error)
+	CreateAtespace(ctx context.Context, in *CreateAtespaceRequest, opts ...grpc.CallOption) (*Atespace, error)
 	// Get an Atespace by name.
 	GetAtespace(ctx context.Context, in *GetAtespaceRequest, opts ...grpc.CallOption) (*Atespace, error)
 	// List all Atespaces.
@@ -105,9 +105,9 @@ func (c *controlClient) GetActor(ctx context.Context, in *GetActorRequest, opts 
 	return out, nil
 }
 
-func (c *controlClient) CreateActor(ctx context.Context, in *CreateActorRequest, opts ...grpc.CallOption) (*CreateActorResponse, error) {
+func (c *controlClient) CreateActor(ctx context.Context, in *CreateActorRequest, opts ...grpc.CallOption) (*Actor, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(CreateActorResponse)
+	out := new(Actor)
 	err := c.cc.Invoke(ctx, Control_CreateActor_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -185,9 +185,9 @@ func (c *controlClient) ListActors(ctx context.Context, in *ListActorsRequest, o
 	return out, nil
 }
 
-func (c *controlClient) CreateAtespace(ctx context.Context, in *CreateAtespaceRequest, opts ...grpc.CallOption) (*CreateAtespaceResponse, error) {
+func (c *controlClient) CreateAtespace(ctx context.Context, in *CreateAtespaceRequest, opts ...grpc.CallOption) (*Atespace, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(CreateAtespaceResponse)
+	out := new(Atespace)
 	err := c.cc.Invoke(ctx, Control_CreateAtespace_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -244,7 +244,7 @@ type ControlServer interface {
 	// Get an Actor.
 	GetActor(context.Context, *GetActorRequest) (*Actor, error)
 	// Create a new Actor deriving from a given ActorTemplate.
-	CreateActor(context.Context, *CreateActorRequest) (*CreateActorResponse, error)
+	CreateActor(context.Context, *CreateActorRequest) (*Actor, error)
 	// Update mutable fields on an existing Actor.
 	UpdateActor(context.Context, *UpdateActorRequest) (*UpdateActorResponse, error)
 	// Suspend a given actor to a new snapshot.
@@ -260,7 +260,7 @@ type ControlServer interface {
 	// List all actors currently reflected in redis.
 	ListActors(context.Context, *ListActorsRequest) (*ListActorsResponse, error)
 	// Create a new Atespace. Substrate-native, stored in Redis.
-	CreateAtespace(context.Context, *CreateAtespaceRequest) (*CreateAtespaceResponse, error)
+	CreateAtespace(context.Context, *CreateAtespaceRequest) (*Atespace, error)
 	// Get an Atespace by name.
 	GetAtespace(context.Context, *GetAtespaceRequest) (*Atespace, error)
 	// List all Atespaces.
@@ -282,7 +282,7 @@ type UnimplementedControlServer struct{}
 func (UnimplementedControlServer) GetActor(context.Context, *GetActorRequest) (*Actor, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetActor not implemented")
 }
-func (UnimplementedControlServer) CreateActor(context.Context, *CreateActorRequest) (*CreateActorResponse, error) {
+func (UnimplementedControlServer) CreateActor(context.Context, *CreateActorRequest) (*Actor, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateActor not implemented")
 }
 func (UnimplementedControlServer) UpdateActor(context.Context, *UpdateActorRequest) (*UpdateActorResponse, error) {
@@ -306,7 +306,7 @@ func (UnimplementedControlServer) ListWorkers(context.Context, *ListWorkersReque
 func (UnimplementedControlServer) ListActors(context.Context, *ListActorsRequest) (*ListActorsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListActors not implemented")
 }
-func (UnimplementedControlServer) CreateAtespace(context.Context, *CreateAtespaceRequest) (*CreateAtespaceResponse, error) {
+func (UnimplementedControlServer) CreateAtespace(context.Context, *CreateAtespaceRequest) (*Atespace, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateAtespace not implemented")
 }
 func (UnimplementedControlServer) GetAtespace(context.Context, *GetAtespaceRequest) (*Atespace, error) {
