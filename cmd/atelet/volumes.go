@@ -22,17 +22,7 @@ import (
 
 	"github.com/agent-substrate/substrate/internal/ateompath"
 	"github.com/agent-substrate/substrate/internal/proto/ateletpb"
-	"github.com/agent-substrate/substrate/internal/volume"
 )
-
-var (
-	globalVolumePlugin = volume.NewMockVolumePlugin()
-)
-
-// TODO: Replace with actual volume plugin search
-func getVolumePlugin() volume.VolumePlugin {
-	return globalVolumePlugin
-}
 
 func (s *AteomHerder) mountExternalVolumes(ctx context.Context, atespace, actorID string, volumes []*ateletpb.Volume) error {
 	for _, vol := range volumes {
@@ -48,7 +38,7 @@ func (s *AteomHerder) mountExternalVolumes(ctx context.Context, atespace, actorI
 			return fmt.Errorf("failed to create mount point %q: %w", hostPath, err)
 		}
 		slog.InfoContext(ctx, "Mounting volume", slog.String("volume_id", ext.GetStorageVolumeId()), slog.String("host_path", hostPath))
-		if err := getVolumePlugin().MountVolume(ctx, ext.GetStorageVolumeId(), hostPath); err != nil {
+		if err := s.volumePlugin.MountVolume(ctx, ext.GetStorageVolumeId(), hostPath); err != nil {
 			return fmt.Errorf("failed to mount volume %q to %q: %w", ext.GetStorageVolumeId(), hostPath, err)
 		}
 	}
@@ -66,7 +56,7 @@ func (s *AteomHerder) unmountExternalVolumes(ctx context.Context, atespace, acto
 		}
 		hostPath := ateompath.VolumeHostPath(atespace, actorID, vol.GetName())
 		slog.InfoContext(ctx, "Unmounting volume", slog.String("volume_id", ext.GetStorageVolumeId()), slog.String("host_path", hostPath))
-		if err := getVolumePlugin().UnmountVolume(ctx, ext.GetStorageVolumeId(), hostPath); err != nil {
+		if err := s.volumePlugin.UnmountVolume(ctx, ext.GetStorageVolumeId(), hostPath); err != nil {
 			slog.ErrorContext(ctx, "failed to unmount volume", slog.String("volume_id", ext.GetStorageVolumeId()), slog.String("host_path", hostPath), slog.Any("error", err))
 		}
 	}

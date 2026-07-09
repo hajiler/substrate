@@ -26,6 +26,7 @@ import (
 	"github.com/agent-substrate/substrate/cmd/ateapi/internal/store"
 	"github.com/agent-substrate/substrate/cmd/ateapi/internal/workercache"
 	"github.com/agent-substrate/substrate/internal/proto/ateletpb"
+	"github.com/agent-substrate/substrate/internal/volume"
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	listersv1alpha1 "github.com/agent-substrate/substrate/pkg/client/listers/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
@@ -209,14 +210,15 @@ func (s *AssignWorkerStep) RetryBackoff() *wait.Backoff {
 }
 
 type AttachVolumesStep struct {
-	store store.Interface
+	store        store.Interface
+	volumePlugin volume.VolumePlugin
 }
 
 func (s *AttachVolumesStep) Name() string { return "AttachVolumes" }
 
 func (s *AttachVolumesStep) IsComplete(ctx context.Context, input *ResumeInput, state *ResumeState) (bool, error) {
 	// TODO: check if all volumes are attached
-	return true, nil
+	return state.Actor.GetStatus() == ateapipb.Actor_STATUS_RUNNING, nil
 }
 
 func (s *AttachVolumesStep) Execute(ctx context.Context, input *ResumeInput, state *ResumeState) error {
@@ -236,7 +238,7 @@ func (s *AttachVolumesStep) Execute(ctx context.Context, input *ResumeInput, sta
 
 	for _, vol := range state.Actor.GetActorVolumes() {
 		slog.InfoContext(ctx, "Attaching volume to node", slog.String("volume_id", vol.GetStorageVolumeId()), slog.String("node", node))
-		err := getVolumePlugin().AttachVolume(ctx, vol.GetStorageVolumeId(), node)
+		err := s.volumePlugin.AttachVolume(ctx, vol.GetStorageVolumeId(), node)
 		if err != nil {
 			return fmt.Errorf("failed to attach volume %q to node %q: %w", vol.GetStorageVolumeId(), node, err)
 		}
