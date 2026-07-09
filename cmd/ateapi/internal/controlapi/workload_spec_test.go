@@ -470,7 +470,9 @@ func TestAppendExternalVolumes(t *testing.T) {
 	}
 
 	actor := &ateapipb.Actor{
-		ActorId: "actor-123",
+		Metadata: &ateapipb.ResourceMetadata{
+			Name: "actor-123",
+		},
 		ActorVolumes: []*ateapipb.ExternalVolume{
 			{
 				ActorVolumeId:   "actor-123-vol-1",
@@ -506,7 +508,9 @@ func TestAppendExternalVolumes(t *testing.T) {
 
 	// Test missing volume returns an error
 	missingActor := &ateapipb.Actor{
-		ActorId:      "actor-123",
+		Metadata: &ateapipb.ResourceMetadata{
+			Name: "actor-123",
+		},
 		ActorVolumes: []*ateapipb.ExternalVolume{},
 	}
 	if err := appendExternalVolumes(&ateletpb.WorkloadSpec{}, template, missingActor); err == nil {
