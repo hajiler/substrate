@@ -27,7 +27,7 @@ var bootFlag bool
 var resumeAtespaceFlag string
 
 var resumeActorCmd = &cobra.Command{
-	Use:   "actor [actor-id]",
+	Use:   "actor <actor-name>",
 	Short: "Resume an actor",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
