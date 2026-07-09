@@ -54,14 +54,14 @@ const (
 	ActorIDFileName = "actor-id"
 )
 
-func prepareOCIDirectory(ctx context.Context, pullCache *memorypullcache.MemoryPullCache, atespace, actorID, containerName, ref string, args []string, env []string, annotations map[string]string, netns string, identityDir string, volumes []*ateletpb.Volume, volumeMounts []*ateletpb.VolumeMount) error {
+func prepareOCIDirectory(ctx context.Context, pullCache *memorypullcache.MemoryPullCache, atespace, actorName, containerName, ref string, args []string, env []string, annotations map[string]string, netns string, identityDir string, volumes []*ateletpb.Volume, volumeMounts []*ateletpb.VolumeMount) error {
 	tracer := otel.Tracer("prepareOCIDirectory")
 
 	ctx, span := tracer.Start(ctx, "prepareOCIDirectory")
 	span.SetAttributes(attribute.String("image", ref))
 	defer span.End()
 
-	bundlePath := ateompath.OCIBundlePath(atespace, actorID, containerName)
+	bundlePath := ateompath.OCIBundlePath(atespace, actorName, containerName)
 	rootPath := path.Join(bundlePath, "rootfs")
 
 	if err := os.RemoveAll(rootPath); err != nil {
@@ -82,7 +82,7 @@ func prepareOCIDirectory(ctx context.Context, pullCache *memorypullcache.MemoryP
 		return fmt.Errorf("in untar: %w", err)
 	}
 
-	// Bind-mount the per-actor identity directory so the workload can read its
+	// Bind-mount the per-actor nameentity directory so the workload can read its
 	// own ID at IdentityMountPath/ActorIDFileName. The bind target must exist
 	// in the rootfs for the mount to attach.
 	if identityDir != "" {
@@ -98,7 +98,7 @@ func prepareOCIDirectory(ctx context.Context, pullCache *memorypullcache.MemoryP
 		}
 	}
 
-	ociSpec := buildActorOCISpec(atespace, actorID, imageCfg, args, env, annotations, netns, identityDir, volumes, volumeMounts)
+	ociSpec := buildActorOCISpec(atespace, actorName, imageCfg, args, env, annotations, netns, identityDir, volumes, volumeMounts)
 	ociSpecBytes, err := json.MarshalIndent(ociSpec, "", "  ")
 	if err != nil {
 		return fmt.Errorf("while marshaling OCI spec: %w", err)
@@ -141,7 +141,7 @@ func mergeActorEnv(imageEnv, templateEnv []string) []string {
 // When identityDir is non-empty it adds a read-only bind mount of that host
 // directory at IdentityMountPath so the actor can read its own ID (see
 // IdentityMountPath for why this is a bind mount rather than env vars).
-func buildActorOCISpec(atespace string, actorID string, imageCfg *v1.Config, args []string, env []string, annotations map[string]string, netns string, identityDir string, volumes []*ateletpb.Volume, volumeMounts []*ateletpb.VolumeMount) *specs.Spec {
+func buildActorOCISpec(atespace string, actorName string, imageCfg *v1.Config, args []string, env []string, annotations map[string]string, netns string, identityDir string, volumes []*ateletpb.Volume, volumeMounts []*ateletpb.VolumeMount) *specs.Spec {
 	var imageEnv []string
 	if imageCfg != nil {
 		imageEnv = imageCfg.Env
@@ -265,9 +265,9 @@ func buildActorOCISpec(atespace string, actorID string, imageCfg *v1.Config, arg
 		var srcPath string
 		switch volumeTypes[vm.GetName()] {
 		case ateletpb.VolumeType_VOLUME_TYPE_DURABLE_DIR:
-			srcPath = ateompath.DurableDirVolumeMountPoint(atespace, actorID, vm.GetName())
+			srcPath = ateompath.DurableDirVolumeMountPoint(atespace, actorName, vm.GetName())
 		case ateletpb.VolumeType_VOLUME_TYPE_EXTERNAL:
-			srcPath = ateompath.VolumeHostPath(atespace, actorID, vm.GetName())
+			srcPath = ateompath.VolumeHostPath(atespace, actorName, vm.GetName())
 		default:
 			continue
 		}

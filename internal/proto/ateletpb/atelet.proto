@@ -36,7 +36,7 @@ message RunRequest {
   string target_ateom_uid = 1;
 
   string atespace = 2;
-  string actor_id = 3;
+  string actor_name = 3;
 
   string actor_template_namespace = 4;
   string actor_template_name = 5;
@@ -186,7 +186,7 @@ message CheckpointRequest {
   string target_ateom_uid = 1;
 
   string atespace = 2;
-  string actor_id = 3;
+  string actor_name = 3;
 
   string actor_template_namespace = 4;
   string actor_template_name = 5;
@@ -215,7 +215,7 @@ message RestoreRequest {
   string target_ateom_uid = 1;
 
   string atespace = 2;
-  string actor_id = 3;
+  string actor_name = 3;
 
   string actor_template_namespace = 4;
   string actor_template_name = 5;
