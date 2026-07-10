@@ -20,6 +20,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -211,6 +212,7 @@ func runActorLifecycleTestCase(t *testing.T, prefix string, createTemplate func(
 		t.Fatalf("failed to create Actor: %v", err)
 	}
 	t.Logf("Successfully created Actor: %s", createResp.GetMetadata().GetName())
+	populateCSIVolumes(t, clients, at, createResp)
 	defer func() {
 		clients.SubstrateAPI.DeleteActor(ctx, &ateapipb.DeleteActorRequest{
 			Actor: &ateapipb.ObjectRef{Atespace: demoAtespace, Name: actorID},
@@ -356,13 +358,15 @@ func pauseActor(ctx context.Context, t *testing.T, clients *e2e.Clients, nsObj *
 
 	// Creating an actor
 	t.Logf("Creating Actor %q...", actorID)
-	if _, err := clients.SubstrateAPI.CreateActor(ctx, &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+	createResp, err := clients.SubstrateAPI.CreateActor(ctx, &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
 		Metadata:               &ateapipb.ResourceMetadata{Atespace: demoAtespace, Name: actorID},
 		ActorTemplateNamespace: nsObj.Name,
 		ActorTemplateName:      at.Name,
-	}}); err != nil {
+	}})
+	if err != nil {
 		t.Fatalf("failed to create Actor: %v", err)
 	}
+	populateCSIVolumes(t, clients, at, createResp)
 	waitForActorStatus(ctx, t, clients, actorID, ateapipb.Actor_STATUS_SUSPENDED)
 
 	// Resuming the actor
@@ -444,13 +448,15 @@ func suspendActor(ctx context.Context, t *testing.T, clients *e2e.Clients, nsObj
 
 	// Creating an actor
 	t.Logf("Creating Actor %q...", actorID)
-	if _, err := clients.SubstrateAPI.CreateActor(ctx, &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+	createResp, err := clients.SubstrateAPI.CreateActor(ctx, &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
 		Metadata:               &ateapipb.ResourceMetadata{Atespace: demoAtespace, Name: actorID},
 		ActorTemplateNamespace: nsObj.Name,
 		ActorTemplateName:      at.Name,
-	}}); err != nil {
+	}})
+	if err != nil {
 		t.Fatalf("failed to create Actor: %v", err)
 	}
+	populateCSIVolumes(t, clients, at, createResp)
 	waitForActorStatus(ctx, t, clients, actorID, ateapipb.Actor_STATUS_SUSPENDED)
 
 	// Resuming the actor
@@ -799,4 +805,29 @@ func callActorOnce(t *testing.T, atespace, actorID string) (string, error) {
 func isMicroVMEnvironment() bool {
 	// TODO(BenTheElder) remove it once https://github.com/agent-substrate/substrate/pull/313 is merged.
 	return os.Getenv("E2E_TEMPLATE_NAMESPACE") == "ate-demo-counter-microvm"
+}
+
+func populateCSIVolumes(t *testing.T, clients *e2e.Clients, at *v1alpha1.ActorTemplate, actor *ateapipb.Actor) {
+	for _, vol := range actor.GetActorVolumes() {
+		var templateVol *v1alpha1.Volume
+		for _, tv := range at.Spec.Volumes {
+			uniqueName := fmt.Sprintf("%s-%s-%s", actor.GetMetadata().GetAtespace(), actor.GetMetadata().GetName(), tv.Name)
+			if uniqueName == vol.GetActorVolumeId() {
+				templateVol = &tv
+				break
+			}
+		}
+		if templateVol == nil {
+			continue
+		}
+		if templateVol.ExternalVolumeTemplate != nil && templateVol.ExternalVolumeTemplate.StorageClassName == "csi-hostpath-sc" {
+			volID := vol.GetStorageVolumeId()
+			t.Logf("Populating CSI volume %s (ID: %s) with test.txt", vol.GetActorVolumeId(), volID)
+			cmdStr := fmt.Sprintf("mkdir -p /var/lib/csi-hostpath-data/%s && echo 'CSI volume content' > /var/lib/csi-hostpath-data/%s/test.txt", volID, volID)
+			cmd := exec.Command("docker", "exec", "kind-control-plane", "sh", "-c", cmdStr)
+			if err := cmd.Run(); err != nil {
+				t.Logf("Warning: failed to populate CSI volume (might be fine if using mock plugin): %v", err)
+			}
+		}
+	}
 }
