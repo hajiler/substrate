@@ -260,13 +260,13 @@ func (s *AteomHerder) Run(ctx context.Context, req *ateletpb.RunRequest) (resp *
 		return nil, fmt.Errorf("while resetting actor dirs: %w", err)
 	}
 
-	if err := s.mountExternalVolumes(ctx, atespace, actorID, req.GetSpec().GetVolumes()); err != nil {
+	if err := s.mountExternalVolumes(ctx, atespace, actorName, req.GetSpec().GetVolumes()); err != nil {
 		return nil, err
 	}
 	defer func() {
 		if err != nil {
 			// TODO cleanup orphaned volumes
-			_ = s.unmountExternalVolumes(ctx, atespace, actorID, req.GetSpec().GetVolumes())
+			_ = s.unmountExternalVolumes(ctx, atespace, actorName, req.GetSpec().GetVolumes())
 		}
 	}()
 
@@ -407,7 +407,7 @@ func (s *AteomHerder) Checkpoint(ctx context.Context, req *ateletpb.CheckpointRe
 	}
 
 	// TODO cleanup orphaned volumes
-	_ = s.unmountExternalVolumes(ctx, atespace, actorID, req.GetSpec().GetVolumes())
+	_ = s.unmountExternalVolumes(ctx, atespace, actorName, req.GetSpec().GetVolumes())
 
 	// Note: we do not crash the actor if resetting the directory fails.
 	if err := resetActorDirs(atespace, actorName); err != nil {
@@ -1103,7 +1103,7 @@ func resetActorDirs(atespace, actorName string) error {
 
 	// Do not call RemoveAll on volume directories in case the unmount failed.
 	// We do not want to delete mount content.
-	volumesDir := ateompath.VolumesDir(atespace, actorID)
+	volumesDir := ateompath.VolumesDir(atespace, actorName)
 	entries, err := os.ReadDir(volumesDir)
 	if err != nil && !os.IsNotExist(err) {
 		return wrapFileSystemErr("while reading volumes dir: %w", err)
