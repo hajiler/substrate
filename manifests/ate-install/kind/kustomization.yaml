@@ -45,19 +45,7 @@ patches:
         value: "--volume-plugin=csi"
       - op: add
         path: /spec/template/spec/containers/0/args/-
-        value: "--csi-endpoint=unix:///run/csi-hostpath/csi.sock"
-      - op: add
-        path: /spec/template/spec/containers/0/volumeMounts/-
-        value:
-          name: csi-socket
-          mountPath: /run/csi-hostpath
-      - op: add
-        path: /spec/template/spec/volumes/-
-        value:
-          name: csi-socket
-          hostPath:
-            path: /var/lib/kubelet/plugins/csi-hostpath
-            type: DirectoryOrCreate
+        value: "--csi-controller-endpoint=tcp://csi-hostpath-controller.default.svc:50051"
   - patch: |-
       apiVersion: apps/v1
       kind: DaemonSet
