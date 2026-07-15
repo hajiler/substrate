@@ -109,6 +109,7 @@ message ExternalVolume {
     DELETING = 2;
   }
   Status status = 4;
+  map<string, string> volume_context = 5;
 }
 
 // ResourceMetadata holds the common fields carried by every Substrate resource.

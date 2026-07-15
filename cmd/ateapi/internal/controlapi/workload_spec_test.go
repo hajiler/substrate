@@ -495,6 +495,7 @@ func TestAppendExternalVolumes(t *testing.T) {
 				ActorVolumeId:   "space-abc-actor-123-vol-1",
 				StorageVolumeId: "vol-gce-pd-123",
 				VolumeType:      "pd-standard",
+				VolumeContext:   map[string]string{"foo": "bar"},
 			},
 		},
 	}
@@ -513,6 +514,7 @@ func TestAppendExternalVolumes(t *testing.T) {
 					External: &ateletpb.ExternalVolumeSource{
 						StorageVolumeId: "vol-gce-pd-123",
 						VolumeType:      "pd-standard",
+						VolumeContext:   map[string]string{"foo": "bar"},
 					},
 				},
 			},
