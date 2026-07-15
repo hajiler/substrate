@@ -158,8 +158,8 @@ func (s *CallAteletSuspendStep) Execute(ctx context.Context, input *SuspendInput
 func (s *CallAteletSuspendStep) RetryBackoff() *wait.Backoff { return nil }
 
 type DetachVolumesStep struct {
-	store        store.Interface
-	volumePlugin volume.VolumePlugin
+	store         store.Interface
+	volumePlugins map[string]volume.VolumePlugin
 }
 
 func (s *DetachVolumesStep) Name() string { return "DetachVolumes" }
@@ -193,7 +193,11 @@ func (s *DetachVolumesStep) Execute(ctx context.Context, input *SuspendInput, st
 	ref := &ateapipb.ObjectRef{Atespace: state.Actor.GetMetadata().GetAtespace(), Name: state.Actor.GetMetadata().GetName()}
 	for _, vol := range getMountedActorVolumes(ctx, ref, state.Actor.GetActorVolumes(), state.ActorTemplate) {
 		slog.InfoContext(ctx, "Detaching volume from node", slog.String("volume_id", vol.GetStorageVolumeId()), slog.String("node", node))
-		err := s.volumePlugin.DetachVolume(ctx, vol.GetStorageVolumeId(), node)
+		plugin, ok := s.volumePlugins[vol.GetVolumeType()]
+		if !ok {
+			return fmt.Errorf("no volume plugin found for type %q", vol.GetVolumeType())
+		}
+		err := plugin.DetachVolume(ctx, vol.GetStorageVolumeId(), node)
 		if err != nil {
 			return fmt.Errorf("failed to detach volume %q from node %q: %w", vol.GetStorageVolumeId(), node, err)
 		}

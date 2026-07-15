@@ -57,6 +57,11 @@ func NewMockVolumePlugin() *MockVolumePlugin {
 	}
 }
 
+// DriverName returns the driver name for mock plugin.
+func (p *MockVolumePlugin) DriverName(ctx context.Context) (string, error) {
+	return "substrate.io/mock", nil
+}
+
 // CreateVolume simulates volume provisioning.
 func (p *MockVolumePlugin) CreateVolume(ctx context.Context, name string, capacity string, storageClass string) (string, error) {
 	p.mu.Lock()

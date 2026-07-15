@@ -23,6 +23,7 @@ import (
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // TODO: we should persist creation first so that we can handle background cleanup.
@@ -37,7 +38,20 @@ func (s *Service) createActorVolumes(ctx context.Context, ref *ateapipb.ObjectRe
 		if vol.ExternalVolumeTemplate != nil {
 			// Use a unique name for the volume to ensure idempotency
 			uniqueVolName := actorVolumeID(ref, vol.Name)
-			storageVolumeID, err := s.volumePlugin.CreateVolume(ctx, uniqueVolName, vol.ExternalVolumeTemplate.Capacity.String(), vol.ExternalVolumeTemplate.StorageClassName)
+
+			scName := vol.ExternalVolumeTemplate.StorageClassName
+			sc, err := s.kubeClient.StorageV1().StorageClasses().Get(ctx, scName, metav1.GetOptions{})
+			if err != nil {
+				return nil, status.Errorf(codes.Internal, "failed to get StorageClass %q: %v", scName, err)
+			}
+			driverName := sc.Provisioner
+
+			plugin, ok := s.volumePlugins[driverName]
+			if !ok {
+				return nil, status.Errorf(codes.FailedPrecondition, "no volume plugin registered for driver %q (StorageClass %q)", driverName, scName)
+			}
+
+			storageVolumeID, err := plugin.CreateVolume(ctx, uniqueVolName, vol.ExternalVolumeTemplate.Capacity.String(), scName)
 			if err != nil {
 				// TODO: need better system - best effort cleanup of already created volumes
 				s.deleteActorVolumes(ctx, ref, volumes)
@@ -46,7 +60,7 @@ func (s *Service) createActorVolumes(ctx context.Context, ref *ateapipb.ObjectRe
 			volumes = append(volumes, &ateapipb.ExternalVolume{
 				ActorVolumeId:   uniqueVolName,
 				StorageVolumeId: storageVolumeID,
-				VolumeType:      "mock", // TODO fix when we support multiple plugins
+				VolumeType:      driverName,
 				Status:          ateapipb.ExternalVolume_CREATED,
 			})
 		}
@@ -57,7 +71,12 @@ func (s *Service) createActorVolumes(ctx context.Context, ref *ateapipb.ObjectRe
 // deleteActorVolumes deletes all external volumes in the list on a best-effort basis.
 func (s *Service) deleteActorVolumes(ctx context.Context, ref *ateapipb.ObjectRef, volumes []*ateapipb.ExternalVolume) {
 	for _, vol := range volumes {
-		if err := s.volumePlugin.DeleteVolume(ctx, vol.GetStorageVolumeId()); err != nil {
+		plugin, ok := s.volumePlugins[vol.GetVolumeType()]
+		if !ok {
+			slog.ErrorContext(ctx, "No volume plugin found for type during cleanup", slog.String("volume_type", vol.GetVolumeType()), slog.String("volume_id", vol.GetStorageVolumeId()))
+			continue
+		}
+		if err := plugin.DeleteVolume(ctx, vol.GetStorageVolumeId()); err != nil {
 			slog.ErrorContext(ctx, "failed to delete volume",
 				slog.String("atespace", ref.GetAtespace()),
 				slog.String("actor_id", ref.GetName()),

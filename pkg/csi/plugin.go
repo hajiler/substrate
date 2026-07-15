@@ -45,6 +45,15 @@ func NewPlugin(client *Client) *Plugin {
 	}
 }
 
+// DriverName returns the driver name obtained from the CSI plugin.
+func (p *Plugin) DriverName(ctx context.Context) (string, error) {
+	resp, err := p.client.GetPluginInfo(ctx, &csi.GetPluginInfoRequest{})
+	if err != nil {
+		return "", err
+	}
+	return resp.GetName(), nil
+}
+
 // CreateVolume maps to CSI Controller CreateVolume.
 func (p *Plugin) CreateVolume(ctx context.Context, name string, capacity string, storageClass string) (string, error) {
 	qty, err := resource.ParseQuantity(capacity)
