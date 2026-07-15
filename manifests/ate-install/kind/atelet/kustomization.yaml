@@ -33,8 +33,7 @@ patches:
               args:
               - --gcp-auth-for-image-pulls=false
               - --localhost-registry-replacement=kind-registry:5000
-              - --volume-plugin=csi
-              - --csi-endpoint=unix:///run/csi-hostpath/csi.sock
+              - --csi-endpoints=unix:///run/csi-hostpath/csi.sock,unix:///run/csi-nfs/csi.sock
               env:
               - name: OTEL_EXPORTER_OTLP_ENDPOINT
                 value: http://opentelemetry-collector.otel-system.svc:4317
@@ -52,10 +51,16 @@ patches:
               - name: AWS_SECRET_ACCESS_KEY
                 value: rustfsadmin
               volumeMounts:
-              - name: csi-socket
+              - name: csi-hostpath-socket
                 mountPath: /run/csi-hostpath
+              - name: csi-nfs-socket
+                mountPath: /run/csi-nfs
             volumes:
-            - name: csi-socket
+            - name: csi-hostpath-socket
               hostPath:
                 path: /var/lib/kubelet/plugins/csi-hostpath
+                type: DirectoryOrCreate
+            - name: csi-nfs-socket
+              hostPath:
+                path: /var/lib/kubelet/plugins/csi-nfsplugin
                 type: DirectoryOrCreate

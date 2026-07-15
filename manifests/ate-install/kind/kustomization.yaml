@@ -42,22 +42,7 @@ patches:
           value: http://opentelemetry-collector.otel-system.svc:4317
       - op: add
         path: /spec/template/spec/containers/0/args/-
-        value: "--volume-plugin=csi"
-      - op: add
-        path: /spec/template/spec/containers/0/args/-
-        value: "--csi-endpoint=unix:///run/csi-hostpath/csi.sock"
-      - op: add
-        path: /spec/template/spec/containers/0/volumeMounts/-
-        value:
-          name: csi-socket
-          mountPath: /run/csi-hostpath
-      - op: add
-        path: /spec/template/spec/volumes/-
-        value:
-          name: csi-socket
-          hostPath:
-            path: /var/lib/kubelet/plugins/csi-hostpath
-            type: DirectoryOrCreate
+        value: "--csi-controller-endpoints=tcp://csi-hostpath-controller.default.svc:50051,tcp://csi-nfs-controller.kube-system.svc:50052"
   - patch: |-
       apiVersion: apps/v1
       kind: DaemonSet

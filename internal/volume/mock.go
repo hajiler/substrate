@@ -57,8 +57,13 @@ func NewMockVolumePlugin() *MockVolumePlugin {
 	}
 }
 
+// DriverName returns the driver name for mock plugin.
+func (p *MockVolumePlugin) DriverName(ctx context.Context) (string, error) {
+	return "substrate.io/mock", nil
+}
+
 // CreateVolume simulates volume provisioning.
-func (p *MockVolumePlugin) CreateVolume(ctx context.Context, name string, capacity string, storageClass string) (string, error) {
+func (p *MockVolumePlugin) CreateVolume(ctx context.Context, name string, capacity string, storageClass string, parameters map[string]string) (string, map[string]string, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.counter++
@@ -71,7 +76,7 @@ func (p *MockVolumePlugin) CreateVolume(ctx context.Context, name string, capaci
 		StorageClass: storageClass,
 		Mounts:       make(map[string]bool),
 	}
-	return volumeID, nil
+	return volumeID, parameters, nil
 }
 
 // DeleteVolume simulates volume deletion.
@@ -120,7 +125,7 @@ func (p *MockVolumePlugin) DetachVolume(ctx context.Context, volumeID string, no
 }
 
 // MountVolume simulates mounting volume on the host.
-func (p *MockVolumePlugin) MountVolume(ctx context.Context, volumeID string, targetPath string) error {
+func (p *MockVolumePlugin) MountVolume(ctx context.Context, volumeID string, targetPath string, volumeContext map[string]string) error {
 	slog.InfoContext(ctx, "MockVolumePlugin.MountVolume", slog.String("volumeID", volumeID), slog.String("targetPath", targetPath))
 
 	volumeDir := filepath.Join(mockVolumeDirectories, volumeID)
