@@ -51,7 +51,7 @@ func (s *Service) createActorVolumes(ctx context.Context, ref *ateapipb.ObjectRe
 				return nil, status.Errorf(codes.FailedPrecondition, "no volume plugin registered for driver %q (StorageClass %q)", driverName, scName)
 			}
 
-			storageVolumeID, err := plugin.CreateVolume(ctx, uniqueVolName, vol.ExternalVolumeTemplate.Capacity.String(), scName)
+			storageVolumeID, volCtx, err := plugin.CreateVolume(ctx, uniqueVolName, vol.ExternalVolumeTemplate.Capacity.String(), scName, sc.Parameters)
 			if err != nil {
 				// TODO: need better system - best effort cleanup of already created volumes
 				s.deleteActorVolumes(ctx, ref, volumes)
@@ -62,6 +62,7 @@ func (s *Service) createActorVolumes(ctx context.Context, ref *ateapipb.ObjectRe
 				StorageVolumeId: storageVolumeID,
 				VolumeType:      driverName,
 				Status:          ateapipb.ExternalVolume_CREATED,
+				VolumeContext:   volCtx,
 			})
 		}
 	}
