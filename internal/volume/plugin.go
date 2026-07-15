@@ -20,6 +20,7 @@ import (
 
 // VolumePluginControlPlane abstracts storage operations performed on the control plane.
 type VolumePluginControlPlane interface {
+	DriverName(ctx context.Context) (string, error)
 	CreateVolume(ctx context.Context, name string, capacity string, storageClass string) (volumeID string, err error)
 	DeleteVolume(ctx context.Context, volumeID string) error
 	AttachVolume(ctx context.Context, volumeID string, node string) error

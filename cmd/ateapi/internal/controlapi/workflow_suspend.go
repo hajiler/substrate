@@ -158,8 +158,8 @@ func (s *CallAteletSuspendStep) Execute(ctx context.Context, input *SuspendInput
 func (s *CallAteletSuspendStep) RetryBackoff() *wait.Backoff { return nil }
 
 type DetachVolumesStep struct {
-	store        store.Interface
-	volumePlugin volume.VolumePluginControlPlane
+	store         store.Interface
+	volumePlugins map[string]volume.VolumePluginControlPlane
 }
 
 func (s *DetachVolumesStep) Name() string { return "DetachVolumes" }
@@ -170,7 +170,7 @@ func (s *DetachVolumesStep) IsComplete(ctx context.Context, input *SuspendInput,
 }
 
 func (s *DetachVolumesStep) Execute(ctx context.Context, input *SuspendInput, state *SuspendState) error {
-	return detachActorVolumes(ctx, s.store, s.volumePlugin, state.Actor, state.ActorTemplate, "suspend")
+	return detachActorVolumes(ctx, s.store, s.volumePlugins, state.Actor, state.ActorTemplate, "suspend")
 }
 
 func (s *DetachVolumesStep) RetryBackoff() *wait.Backoff { return nil }
