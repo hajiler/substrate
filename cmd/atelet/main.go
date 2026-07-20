@@ -39,8 +39,13 @@ import (
 	"github.com/agent-substrate/substrate/internal/resources"
 	"github.com/agent-substrate/substrate/internal/serverboot"
 	"github.com/agent-substrate/substrate/internal/version"
+	"sync"
+
 	"github.com/agent-substrate/substrate/internal/volume"
+	"github.com/agent-substrate/substrate/pkg/client/clientset/versioned"
 	"github.com/agent-substrate/substrate/pkg/csi"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -179,6 +184,11 @@ func main() {
 		slog.InfoContext(ctx, "Registered CSI volume plugin", slog.String("driver", driverName), slog.String("endpoint", endpoint))
 	}
 
+	_, ateClient, err := newKubeClients()
+	if err != nil {
+		serverboot.Fatal(ctx, "Failed to create Kubernetes clients", err)
+	}
+
 	wmService := NewService(
 		ctx,
 		ateomDialer,
@@ -186,6 +196,7 @@ func main() {
 		wrappedGCS,
 		pullCache,
 		volPlugins,
+		ateClient,
 	)
 
 	lis, err := net.Listen("tcp", ":"+strconv.Itoa(*port))
@@ -211,7 +222,10 @@ type AteomHerder struct {
 	pullCache     *memorypullcache.MemoryPullCache
 	anonGCSClient ategcs.ObjectStorage
 	gcsClient     ategcs.ObjectStorage
+
+	mu            sync.RWMutex
 	volumePlugins map[string]volume.VolumePlugin
+	ateClient     versioned.Interface
 }
 
 var _ ateletpb.AteomHerderServer = (*AteomHerder)(nil)
@@ -224,6 +238,7 @@ func NewService(
 	gcsClient ategcs.ObjectStorage,
 	pullCache *memorypullcache.MemoryPullCache,
 	volumePlugins map[string]volume.VolumePlugin,
+	ateClient versioned.Interface,
 ) *AteomHerder {
 	wms := &AteomHerder{
 		ateomDialer:   ateomDialer,
@@ -231,6 +246,7 @@ func NewService(
 		anonGCSClient: anonGCSClient,
 		gcsClient:     gcsClient,
 		volumePlugins: volumePlugins,
+		ateClient:     ateClient,
 	}
 	return wms
 }
@@ -1116,4 +1132,20 @@ func resetActorDirs(atespace, actorName string) error {
 	}
 
 	return nil
+}
+
+func newKubeClients() (*kubernetes.Clientset, versioned.Interface, error) {
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		return nil, nil, fmt.Errorf("get cluster config: %w", err)
+	}
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, nil, fmt.Errorf("create clientset: %w", err)
+	}
+	ateClient, err := versioned.NewForConfig(config)
+	if err != nil {
+		return nil, nil, fmt.Errorf("create ate clientset: %w", err)
+	}
+	return clientset, ateClient, nil
 }

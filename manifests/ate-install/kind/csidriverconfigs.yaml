@@ -1,0 +1,17 @@
+apiVersion: ate.dev/v1alpha1
+kind: CSIDriverConfig
+metadata:
+  name: hostpath.csi.k8s.io
+spec:
+  driverName: hostpath.csi.k8s.io
+  controllerEndpoint: tcp://csi-hostpath-controller.default.svc.cluster.local:50051
+  nodeSocketOverride: unix:///var/lib/kubelet/plugins/csi-hostpath/csi.sock
+---
+apiVersion: ate.dev/v1alpha1
+kind: CSIDriverConfig
+metadata:
+  name: nfs.csi.k8s.io
+spec:
+  driverName: nfs.csi.k8s.io
+  controllerEndpoint: tcp://csi-nfs-controller.kube-system.svc.cluster.local:50052
+  nodeSocketOverride: unix:///var/lib/kubelet/plugins/csi-nfsplugin/csi.sock

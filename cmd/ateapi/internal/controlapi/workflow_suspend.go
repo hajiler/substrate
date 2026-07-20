@@ -25,7 +25,6 @@ import (
 
 	"github.com/agent-substrate/substrate/cmd/ateapi/internal/store"
 	"github.com/agent-substrate/substrate/internal/proto/ateletpb"
-	"github.com/agent-substrate/substrate/internal/volume"
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	listersv1alpha1 "github.com/agent-substrate/substrate/pkg/client/listers/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
@@ -158,8 +157,8 @@ func (s *CallAteletSuspendStep) Execute(ctx context.Context, input *SuspendInput
 func (s *CallAteletSuspendStep) RetryBackoff() *wait.Backoff { return nil }
 
 type DetachVolumesStep struct {
-	store         store.Interface
-	volumePlugins map[string]volume.VolumePluginControlPlane
+	store          store.Interface
+	pluginRegistry PluginRegistry
 }
 
 func (s *DetachVolumesStep) Name() string { return "DetachVolumes" }
@@ -170,7 +169,7 @@ func (s *DetachVolumesStep) IsComplete(ctx context.Context, input *SuspendInput,
 }
 
 func (s *DetachVolumesStep) Execute(ctx context.Context, input *SuspendInput, state *SuspendState) error {
-	return detachActorVolumes(ctx, s.store, s.volumePlugins, state.Actor, state.ActorTemplate, "suspend")
+	return detachActorVolumes(ctx, s.store, s.pluginRegistry, state.Actor, state.ActorTemplate, "suspend")
 }
 
 func (s *DetachVolumesStep) RetryBackoff() *wait.Backoff { return nil }

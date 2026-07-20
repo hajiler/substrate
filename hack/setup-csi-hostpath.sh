@@ -38,7 +38,8 @@ kubectl delete storageclass csi-hostpath-sc >/dev/null 2>&1 || true
 
 # Also clean up the host directories inside Kind node (best effort)
 echo "Cleaning up CSI directories on Kind node..."
-KIND_NODE="kind-control-plane"
+KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME:-kind}"
+KIND_NODE="${KIND_CLUSTER_NAME}-worker"
 if docker ps | grep -q "${KIND_NODE}"; then
   # Unmount any stale mounts to prevent "device or resource busy"
   docker exec "${KIND_NODE}" sh -c '
@@ -68,10 +69,12 @@ fi
 
 # 4. Patch the CSI Driver to mount Substrate directory
 echo "Patching CSI Hostpath StatefulSet..."
-kubectl patch statefulset csi-hostpathplugin -n default --patch '
+kubectl patch statefulset csi-hostpathplugin -n default --patch "
 spec:
   template:
     spec:
+      nodeSelector:
+        kubernetes.io/hostname: ${KIND_NODE}
       containers:
       - name: hostpath
         volumeMounts:
@@ -83,7 +86,7 @@ spec:
         hostPath:
           path: /var/lib/ateom-gvisor
           type: DirectoryOrCreate
-'
+"
 
 # 5. Deploy Socat Proxy (from testing manifest)
 echo "Deploying csi-hostpath-socat proxy..."
