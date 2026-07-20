@@ -174,7 +174,7 @@ func (p *Plugin) MountVolume(ctx context.Context, volumeID string, targetPath st
 		TargetPath:       targetPath,
 		VolumeCapability: getStandardCapabilities()[0],
 		Readonly:         false,
-		VolumeContext:     volumeContext,
+		VolumeContext:    volumeContext,
 	}
 	if stagingPath != "" {
 		req.StagingTargetPath = stagingPath

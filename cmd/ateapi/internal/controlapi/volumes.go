@@ -46,9 +46,9 @@ func (s *Service) createActorVolumes(ctx context.Context, ref *ateapipb.ObjectRe
 			}
 			driverName := sc.Provisioner
 
-			plugin, ok := s.volumePlugins[driverName]
-			if !ok {
-				return nil, status.Errorf(codes.FailedPrecondition, "no volume plugin registered for driver %q (StorageClass %q)", driverName, scName)
+			plugin, err := s.GetPlugin(ctx, driverName)
+			if err != nil {
+				return nil, status.Errorf(codes.FailedPrecondition, "failed to get volume plugin for driver %q (StorageClass %q): %v", driverName, scName, err)
 			}
 
 			storageVolumeID, volCtx, err := plugin.CreateVolume(ctx, uniqueVolName, vol.ExternalVolumeTemplate.Capacity.String(), scName, sc.Parameters)
@@ -72,9 +72,9 @@ func (s *Service) createActorVolumes(ctx context.Context, ref *ateapipb.ObjectRe
 // deleteActorVolumes deletes all external volumes in the list on a best-effort basis.
 func (s *Service) deleteActorVolumes(ctx context.Context, ref *ateapipb.ObjectRef, volumes []*ateapipb.ExternalVolume) {
 	for _, vol := range volumes {
-		plugin, ok := s.volumePlugins[vol.GetVolumeType()]
-		if !ok {
-			slog.ErrorContext(ctx, "No volume plugin found for type during cleanup", slog.String("volume_type", vol.GetVolumeType()), slog.String("volume_id", vol.GetStorageVolumeId()))
+		plugin, err := s.GetPlugin(ctx, vol.GetVolumeType())
+		if err != nil {
+			slog.ErrorContext(ctx, "failed to get volume plugin during cleanup", slog.String("volume_type", vol.GetVolumeType()), slog.String("volume_id", vol.GetStorageVolumeId()), slog.Any("error", err))
 			continue
 		}
 		if err := plugin.DeleteVolume(ctx, vol.GetStorageVolumeId()); err != nil {
