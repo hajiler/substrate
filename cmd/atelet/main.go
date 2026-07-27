@@ -30,6 +30,8 @@ import (
 	"strings"
 	"time"
 
+	"sync"
+
 	"cloud.google.com/go/storage"
 	"github.com/agent-substrate/substrate/cmd/atelet/internal/ategcs"
 	"github.com/agent-substrate/substrate/internal/ateerrors"
@@ -42,8 +44,9 @@ import (
 	"github.com/agent-substrate/substrate/internal/resources"
 	"github.com/agent-substrate/substrate/internal/serverboot"
 	"github.com/agent-substrate/substrate/internal/version"
+
 	"github.com/agent-substrate/substrate/internal/volume"
-	"github.com/agent-substrate/substrate/pkg/csi"
+	"github.com/agent-substrate/substrate/pkg/client/clientset/versioned"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -64,6 +67,8 @@ import (
 	"google.golang.org/grpc/status"
 	"k8s.io/apimachinery/pkg/api/validate/content"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/utils/lru"
 )
 
@@ -79,8 +84,6 @@ var (
 	imageCacheDir                = pflag.String("image-cache-dir", ateompath.ImageCacheDir, "Directory for the node-local OCI image layer cache. Must be on the volume shared with the ateom pods (the cached layers are their overlay lowerdirs), and on a disk sized for both capacity and IOPS: unpack throughput is gated by the volume's IOPS.")
 
 	showVersion = pflag.Bool("version", false, "Print version and exit.")
-
-	csiEndpoints = pflag.StringSlice("csi-endpoints", nil, "The list of CSI driver UDS endpoints (e.g. unix:///run/csi/csi.sock)")
 )
 
 func main() {
@@ -176,18 +179,9 @@ func main() {
 	}
 
 	volPlugins := make(map[string]volume.VolumePluginWorkerPlane)
-	for _, endpoint := range *csiEndpoints {
-		csiClient, err := csi.NewCSIClient(endpoint)
-		if err != nil {
-			serverboot.Fatal(ctx, "Failed to initialize CSI client", err)
-		}
-		csiPlugin := csi.NewPlugin(csiClient)
-		driverName, err := csiPlugin.DriverName(ctx)
-		if err != nil {
-			serverboot.Fatal(ctx, "Failed to get CSI driver name", err)
-		}
-		volPlugins[driverName] = csiPlugin
-		slog.InfoContext(ctx, "Registered CSI volume plugin", slog.String("driver", driverName), slog.String("endpoint", endpoint))
+	_, ateClient, err := newKubeClients()
+	if err != nil {
+		serverboot.Fatal(ctx, "Failed to create Kubernetes clients", err)
 	}
 
 	wmService := NewService(
@@ -197,6 +191,7 @@ func main() {
 		wrappedGCS,
 		imageCache,
 		volPlugins,
+		ateClient,
 	)
 
 	lis, err := net.Listen("tcp", ":"+strconv.Itoa(*port))
@@ -231,7 +226,9 @@ type AteomHerder struct {
 	imageCache    *imagecache.Store
 	anonGCSClient ategcs.ObjectStorage
 	gcsClient     ategcs.ObjectStorage
+	mu            sync.RWMutex
 	volumePlugins map[string]volume.VolumePluginWorkerPlane
+	ateClient     versioned.Interface
 }
 
 var _ ateletpb.AteomHerderServer = (*AteomHerder)(nil)
@@ -244,6 +241,7 @@ func NewService(
 	gcsClient ategcs.ObjectStorage,
 	imageCache *imagecache.Store,
 	volumePlugins map[string]volume.VolumePluginWorkerPlane,
+	ateClient versioned.Interface,
 ) *AteomHerder {
 	wms := &AteomHerder{
 		ateomDialer:   ateomDialer,
@@ -251,6 +249,7 @@ func NewService(
 		anonGCSClient: anonGCSClient,
 		gcsClient:     gcsClient,
 		volumePlugins: volumePlugins,
+		ateClient:     ateClient,
 	}
 	return wms
 }
@@ -1174,4 +1173,20 @@ func ateletServerTLSConfig(servingBundlePath, clientCAPath string) (*tls.Config,
 		ClientAuth:     tls.RequireAndVerifyClientCert,
 		ClientCAs:      clientCAs,
 	}, nil
+}
+
+func newKubeClients() (*kubernetes.Clientset, versioned.Interface, error) {
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		return nil, nil, fmt.Errorf("get cluster config: %w", err)
+	}
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, nil, fmt.Errorf("create clientset: %w", err)
+	}
+	ateClient, err := versioned.NewForConfig(config)
+	if err != nil {
+		return nil, nil, fmt.Errorf("create ate clientset: %w", err)
+	}
+	return clientset, ateClient, nil
 }
