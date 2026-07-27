@@ -26,6 +26,7 @@ import (
 	"github.com/agent-substrate/substrate/cmd/ateapi/internal/workercache"
 	"github.com/agent-substrate/substrate/internal/proto/ateletpb"
 	"github.com/agent-substrate/substrate/internal/resources"
+	"github.com/agent-substrate/substrate/internal/volume"
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	listersv1alpha1 "github.com/agent-substrate/substrate/pkg/client/listers/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
@@ -210,7 +211,8 @@ func (s *LoadActorForResumeStep) RetryBackoff() *wait.Backoff { return nil }
 
 // CreateVolumesStep provisions any initial actor volumes that are in PENDING state.
 type CreateVolumesStep struct {
-	store store.Interface
+	store        store.Interface
+	volumePlugin volume.VolumePluginControlPlane
 }
 
 func (s *CreateVolumesStep) Name() string { return "CreateVolumes" }
@@ -235,7 +237,7 @@ func (s *CreateVolumesStep) CheckPrerequisite(ctx context.Context, input *Resume
 }
 
 func (s *CreateVolumesStep) Execute(ctx context.Context, input *ResumeInput, state *ResumeState) error {
-	volumes, err := createActorVolumes(ctx, state.Actor.GetMetadata().GetUid(), state.ActorTemplate, state.Actor.GetActorVolumes())
+	volumes, err := createActorVolumes(ctx, s.volumePlugin, state.Actor.GetMetadata().GetUid(), state.ActorTemplate, state.Actor.GetActorVolumes())
 	state.Actor.ActorVolumes = volumes
 	if err != nil {
 		// Even if volume creation failed, we still want to persist any updated volume state.
@@ -409,7 +411,8 @@ func (s *AssignWorkerStep) RetryBackoff() *wait.Backoff {
 }
 
 type AttachVolumesStep struct {
-	store store.Interface
+	store        store.Interface
+	volumePlugin volume.VolumePluginControlPlane
 }
 
 func (s *AttachVolumesStep) Name() string { return "AttachVolumes" }
@@ -441,7 +444,7 @@ func (s *AttachVolumesStep) Execute(ctx context.Context, input *ResumeInput, sta
 	ref := &ateapipb.ObjectRef{Atespace: state.Actor.GetMetadata().GetAtespace(), Name: state.Actor.GetMetadata().GetName()}
 	for _, vol := range getMountedActorVolumes(ctx, ref, state.Actor.GetActorVolumes(), state.ActorTemplate) {
 		slog.InfoContext(ctx, "Attaching volume to node", slog.String("volume_id", vol.GetStorageVolumeId()), slog.String("node", node))
-		err := getVolumePlugin().AttachVolume(ctx, vol.GetStorageVolumeId(), node)
+		err := s.volumePlugin.AttachVolume(ctx, vol.GetStorageVolumeId(), node)
 		if err != nil {
 			return fmt.Errorf("failed to attach volume %q to node %q: %w", vol.GetStorageVolumeId(), node, err)
 		}

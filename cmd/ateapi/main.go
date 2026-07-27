@@ -40,6 +40,8 @@ import (
 	"github.com/agent-substrate/substrate/internal/credbundle"
 	"github.com/agent-substrate/substrate/internal/serverboot"
 	"github.com/agent-substrate/substrate/internal/version"
+	"github.com/agent-substrate/substrate/internal/volume"
+	"github.com/agent-substrate/substrate/internal/volume/csi"
 	"github.com/agent-substrate/substrate/pkg/client/clientset/versioned"
 	"github.com/agent-substrate/substrate/pkg/client/informers/externalversions"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
@@ -85,6 +87,9 @@ var (
 	showVersion     = pflag.Bool("version", false, "Print version and exit.")
 	logLevelFlag    = pflag.String("log-level", "info", "Minimum log level: debug, info, warn, or error.")
 	clientJWTCAFile = pflag.String("client-jwt-ca-cert", ateapiauth.DefaultServiceAccountCAFile, "CA cert file used to verify TLS when fetching the OIDC discovery document and JWKS for JWT authentication. Defaults to the in-cluster service account CA.")
+
+	volumePlugin = pflag.String("volume-plugin", "csi", "The volume plugin to use: mock|csi")
+	csiEndpoint  = pflag.String("csi-endpoint", "unix:///tmp/dummy-csi.sock", "The UDS endpoint path for the CSI driver (required if volume-plugin is csi)")
 )
 
 func main() {
@@ -170,8 +175,25 @@ func main() {
 		serverboot.Fatal(ctx, "Failed to register worker-count metric", err)
 	}
 
+	var volPlugin volume.VolumePluginControlPlane
+	switch *volumePlugin {
+	case "csi":
+		if *csiEndpoint == "" {
+			serverboot.Fatal(ctx, "Failed to initialize volume plugin", fmt.Errorf("--csi-endpoint is required when --volume-plugin is csi"))
+		}
+		csiClient, err := csi.NewCSIClient(*csiEndpoint)
+		if err != nil {
+			serverboot.Fatal(ctx, "Failed to initialize CSI client", err)
+		}
+		volPlugin = csi.NewPlugin(csiClient)
+		slog.InfoContext(ctx, "Using CSI volume plugin", slog.String("endpoint", *csiEndpoint))
+	default:
+		volPlugin = volume.NewMockVolumePlugin()
+		slog.InfoContext(ctx, "Using Mock volume plugin")
+	}
+
 	ateletDialer := controlapi.NewAteletDialer(workerPodInformer.GetIndexer(), ateletPodInformer.GetIndexer(), *ateletClientCredBundle, *podIdentityCACerts)
-	sm := controlapi.NewService(redisPersistence, workerCache, actorTemplateLister, workerPoolLister, sandboxConfigLister, ateletDialer, clientset)
+	sm := controlapi.NewService(redisPersistence, workerCache, actorTemplateLister, workerPoolLister, sandboxConfigLister, ateletDialer, clientset, volPlugin)
 
 	jwtIssuerDiscoveryClient := buildK8sServiceAccountIssuerDiscoveryClient(ctx, *clientJWTCAFile, *clientJWTIssuer)
 

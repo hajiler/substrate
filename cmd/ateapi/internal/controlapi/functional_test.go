@@ -324,7 +324,7 @@ func setupTest(t *testing.T, ns string) *testContext {
 		return insecure.NewCredentials(), nil
 	}
 
-	service := NewService(persistence, wc, actorTemplateLister, workerPoolLister, sandboxConfigLister, dialer, k8sClient)
+	service := NewService(persistence, wc, actorTemplateLister, workerPoolLister, sandboxConfigLister, dialer, k8sClient, volume.NewMockVolumePlugin())
 
 	// 5. Start REAL gRPC Server for ATE API
 	grpcServer := grpc.NewServer(grpc.UnaryInterceptor(ateinterceptors.ServerUnaryInterceptor))
@@ -1031,11 +1031,8 @@ func TestResumeActor_VolumeCreationFailure(t *testing.T) {
 	// Inject a custom partial-failing VolumePlugin into global scope
 	// TODO this doesn't support parallelism of test cases
 	plugin := &partialFailVolumePlugin{}
-	oldGlobalPlugin := globalVolumePlugin
-	globalVolumePlugin = plugin
-	defer func() {
-		globalVolumePlugin = oldGlobalPlugin
-	}()
+	tc.service.volumePlugin = plugin
+	tc.service.actorWorkflow.volumePlugin = plugin
 
 	// Call CreateActor RPC directly
 	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{
@@ -1183,11 +1180,8 @@ func TestResumeActor_VolumeCreationRetrySuccess(t *testing.T) {
 	createWorkerPod(t, tc, ns, "worker-1", "node1", "pool1")
 
 	plugin := &retrySuccessVolumePlugin{}
-	oldGlobalPlugin := globalVolumePlugin
-	globalVolumePlugin = plugin
-	defer func() {
-		globalVolumePlugin = oldGlobalPlugin
-	}()
+	tc.service.volumePlugin = plugin
+	tc.service.actorWorkflow.volumePlugin = plugin
 
 	// Call CreateActor RPC directly
 	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{

@@ -23,6 +23,7 @@ import (
 	"github.com/agent-substrate/substrate/cmd/ateapi/internal/store"
 	"github.com/agent-substrate/substrate/cmd/ateapi/internal/workercache"
 	"github.com/agent-substrate/substrate/internal/resources"
+	"github.com/agent-substrate/substrate/internal/volume"
 	listersv1alpha1 "github.com/agent-substrate/substrate/pkg/client/listers/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"go.opentelemetry.io/otel"
@@ -139,6 +140,7 @@ type ActorWorkflow struct {
 	sandboxConfigLister listersv1alpha1.SandboxConfigLister
 	kubeClient          kubernetes.Interface
 	secretCache         *envSecretCache
+	volumePlugin        volume.VolumePluginControlPlane
 }
 
 // NewActorWorkflow creates a new ActorWorkflow.
@@ -150,6 +152,7 @@ func NewActorWorkflow(
 	workerPoolLister listersv1alpha1.WorkerPoolLister,
 	sandboxConfigLister listersv1alpha1.SandboxConfigLister,
 	kubeClient kubernetes.Interface,
+	volumePlugin volume.VolumePluginControlPlane,
 ) *ActorWorkflow {
 	return &ActorWorkflow{
 		store:               store,
@@ -161,6 +164,7 @@ func NewActorWorkflow(
 		sandboxConfigLister: sandboxConfigLister,
 		kubeClient:          kubeClient,
 		secretCache:         newEnvSecretCache(envSecretCacheTTL),
+		volumePlugin:        volumePlugin,
 	}
 }
 
@@ -180,9 +184,9 @@ func (w *ActorWorkflow) ResumeActor(ctx context.Context, actorRef resources.Acto
 
 	steps := []WorkflowStep[*ResumeInput, *ResumeState]{
 		&LoadActorForResumeStep{store: w.store, actorTemplateLister: w.actorTemplateLister},
-		&CreateVolumesStep{store: w.store},
+		&CreateVolumesStep{store: w.store, volumePlugin: w.volumePlugin},
 		&AssignWorkerStep{store: w.store, workerCache: w.workerCache, scheduler: w.scheduler},
-		&AttachVolumesStep{store: w.store},
+		&AttachVolumesStep{store: w.store, volumePlugin: w.volumePlugin},
 		&CallAteletRestoreStep{store: w.store, dialer: w.dialer, kubeClient: w.kubeClient, secretCache: w.secretCache, workerPoolLister: w.workerPoolLister, sandboxConfigLister: w.sandboxConfigLister, scheduler: w.scheduler},
 		&FinalizeRunningStep{store: w.store},
 	}
@@ -211,7 +215,7 @@ func (w *ActorWorkflow) SuspendActor(ctx context.Context, actorRef resources.Act
 		&LoadActorForSuspendStep{store: w.store, actorTemplateLister: w.actorTemplateLister},
 		&MarkSuspendingStep{store: w.store},
 		&CallAteletSuspendStep{store: w.store, dialer: w.dialer},
-		&DetachVolumesStep{store: w.store},
+		&DetachVolumesStep{store: w.store, volumePlugin: w.volumePlugin},
 		&FinalizeSuspendedStep{store: w.store},
 	}
 
@@ -239,7 +243,7 @@ func (w *ActorWorkflow) PauseActor(ctx context.Context, actorRef resources.Actor
 		&LoadActorForPauseStep{store: w.store, actorTemplateLister: w.actorTemplateLister},
 		&MarkPausingStep{store: w.store},
 		&CallAteletPauseStep{store: w.store, dialer: w.dialer},
-		&DetachVolumesForPauseStep{store: w.store},
+		&DetachVolumesForPauseStep{store: w.store, volumePlugin: w.volumePlugin},
 		&FinalizePausedStep{store: w.store},
 	}
 
@@ -267,7 +271,7 @@ func (w *ActorWorkflow) DeleteActor(ctx context.Context, atespace, name string) 
 	steps := []WorkflowStep[*DeleteInput, *DeleteState]{
 		&LoadActorForDeleteStep{store: w.store},
 		&MarkDeletingStep{store: w.store},
-		&DeleteVolumesStep{store: w.store},
+		&DeleteVolumesStep{store: w.store, volumePlugin: w.volumePlugin},
 		&FinalizeDeletedStep{store: w.store},
 	}
 

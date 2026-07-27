@@ -21,6 +21,7 @@ import (
 
 	"github.com/agent-substrate/substrate/cmd/ateapi/internal/store"
 	"github.com/agent-substrate/substrate/internal/resources"
+	"github.com/agent-substrate/substrate/internal/volume"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -99,7 +100,8 @@ func (s *MarkDeletingStep) Execute(ctx context.Context, input *DeleteInput, stat
 func (s *MarkDeletingStep) RetryBackoff() *wait.Backoff { return nil }
 
 type DeleteVolumesStep struct {
-	store store.Interface
+	store        store.Interface
+	volumePlugin volume.VolumePluginControlPlane
 }
 
 func (s *DeleteVolumesStep) Name() string { return "DeleteVolumes" }
@@ -113,7 +115,7 @@ func (s *DeleteVolumesStep) CheckPrerequisite(ctx context.Context, input *Delete
 	return nil
 }
 func (s *DeleteVolumesStep) Execute(ctx context.Context, input *DeleteInput, state *DeleteState) error {
-	if err := deleteActorVolumes(ctx, state.Actor.GetMetadata().GetUid(), state.Actor.GetActorVolumes()); err != nil {
+	if err := deleteActorVolumes(ctx, s.volumePlugin, state.Actor.GetMetadata().GetUid(), state.Actor.GetActorVolumes()); err != nil {
 		return status.Errorf(codes.Internal, "while deleting actor volumes: %v", err)
 	}
 	return nil

@@ -169,9 +169,8 @@ func TestDeleteActor_MultipleVolumeDeletionFailures(t *testing.T) {
 	createTemplate(t, tc, ns)
 
 	plugin := &failingVolumePlugin{}
-	oldGlobalPlugin := globalVolumePlugin
-	globalVolumePlugin = plugin
-	defer func() { globalVolumePlugin = oldGlobalPlugin }()
+	tc.service.volumePlugin = plugin
+	tc.service.actorWorkflow.volumePlugin = plugin
 
 	actor := &ateapipb.Actor{
 		Metadata: &ateapipb.ResourceMetadata{

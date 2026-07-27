@@ -38,6 +38,8 @@ patches:
               # Kind clusters are dev/CI: run atelet at debug so e2e suites can
               # assert on per-item log lines. Production installs default to info.
               - --log-level=debug
+              - --volume-plugin=csi
+              - --csi-endpoint=unix:///run/csi-hostpath/csi.sock
               env:
               - name: OTEL_EXPORTER_OTLP_ENDPOINT
                 value: http://opentelemetry-collector.otel-system.svc:4317
@@ -54,3 +56,11 @@ patches:
                 value: rustfsadmin
               - name: AWS_SECRET_ACCESS_KEY
                 value: rustfsadmin
+              volumeMounts:
+              - name: csi-socket
+                mountPath: /run/csi-hostpath
+            volumes:
+            - name: csi-socket
+              hostPath:
+                path: /var/lib/kubelet/plugins/csi-hostpath
+                type: DirectoryOrCreate

@@ -231,8 +231,8 @@ func TestCreateActorVolumes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			globalVolumePlugin = volume.NewMockVolumePlugin()
-			res, err := createActorVolumes(ctx, "actor-uid-123", tt.tmpl, tt.inputVolumes)
+			plugin := volume.NewMockVolumePlugin()
+			res, err := createActorVolumes(ctx, plugin, "actor-uid-123", tt.tmpl, tt.inputVolumes)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("createActorVolumes() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -286,10 +286,7 @@ func TestDeleteActorVolumes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			plugin := &trackingVolumePlugin{}
-			oldGlobalPlugin := globalVolumePlugin
-			globalVolumePlugin = plugin
-			defer func() { globalVolumePlugin = oldGlobalPlugin }()
-			err := deleteActorVolumes(ctx, tt.actorUID, tt.volumes)
+			err := deleteActorVolumes(ctx, plugin, tt.actorUID, tt.volumes)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("deleteActorVolumes() error = %v, wantErr %v", err, tt.wantErr)
 			}

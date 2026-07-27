@@ -28,15 +28,6 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-var (
-	globalVolumePlugin volume.VolumePluginControlPlane = volume.NewMockVolumePlugin()
-)
-
-// TODO: Replace with actual volume plugin search
-func getVolumePlugin() volume.VolumePluginControlPlane {
-	return globalVolumePlugin
-}
-
 // initialActorVolumes constructs initial volume objects in PENDING state before volume creation.
 func initialActorVolumes(template *atev1alpha1.ActorTemplate) []*ateapipb.ExternalVolume {
 	var volumes []*ateapipb.ExternalVolume
@@ -55,7 +46,7 @@ func initialActorVolumes(template *atev1alpha1.ActorTemplate) []*ateapipb.Extern
 // createActorVolumes provisions external volumes specified in volumesToCreate using the provided volume plugin.
 // It returns the list of external volumes (with updated status and storage IDs), or an error if any creation fails.
 // Any volumes processed before or during a failure are returned alongside the error so they can be persisted on the actor.
-func createActorVolumes(ctx context.Context, actorUID string, template *atev1alpha1.ActorTemplate, volumesToCreate []*ateapipb.ExternalVolume) (resultVolumes []*ateapipb.ExternalVolume, err error) {
+func createActorVolumes(ctx context.Context, plugin volume.VolumePluginControlPlane, actorUID string, template *atev1alpha1.ActorTemplate, volumesToCreate []*ateapipb.ExternalVolume) (resultVolumes []*ateapipb.ExternalVolume, err error) {
 	resultVolumes = make([]*ateapipb.ExternalVolume, 0, len(volumesToCreate))
 
 	var currentIdx int
@@ -96,7 +87,6 @@ func createActorVolumes(ctx context.Context, actorUID string, template *atev1alp
 
 		actVolID := actorVolumeID(actorUID, volName)
 
-		plugin := getVolumePlugin()
 		if plugin == nil {
 			return resultVolumes, status.Errorf(codes.Internal, "volume plugin is not configured for creating volume %q", volName)
 		}
@@ -116,7 +106,7 @@ func createActorVolumes(ctx context.Context, actorUID string, template *atev1alp
 }
 
 // deleteActorVolumes deletes all external volumes in the list.
-func deleteActorVolumes(ctx context.Context, actorUID string, volumes []*ateapipb.ExternalVolume) error {
+func deleteActorVolumes(ctx context.Context, plugin volume.VolumePluginControlPlane, actorUID string, volumes []*ateapipb.ExternalVolume) error {
 	if actorUID == "" {
 		return errors.New("actorUID is required")
 	}
@@ -129,7 +119,7 @@ func deleteActorVolumes(ctx context.Context, actorUID string, volumes []*ateapip
 			// to the original requested volID.
 			volID = actorVolumeID(actorUID, vol.GetVolumeName())
 		}
-		if err := getVolumePlugin().DeleteVolume(ctx, volID); err != nil {
+		if err := plugin.DeleteVolume(ctx, volID); err != nil {
 			errs = append(errs, fmt.Errorf("failed to delete volume %q: %w", volID, err))
 		}
 	}
@@ -168,7 +158,7 @@ func actorVolumeID(actorUID string, volumeName string) string {
 }
 
 // detachActorVolumes detaches all mounted external volumes for an actor from its worker node.
-func detachActorVolumes(ctx context.Context, st store.Interface, actor *ateapipb.Actor, template *atev1alpha1.ActorTemplate, action string) error {
+func detachActorVolumes(ctx context.Context, st store.Interface, plugin volume.VolumePluginControlPlane, actor *ateapipb.Actor, template *atev1alpha1.ActorTemplate, action string) error {
 	if actor.GetAteomPodNamespace() == "" {
 		slog.WarnContext(ctx, fmt.Sprintf("Actor has no assigned worker pod during %s, skipping detach volumes", action), slog.String("actor_id", actor.GetMetadata().GetName()))
 		return nil
@@ -192,7 +182,7 @@ func detachActorVolumes(ctx context.Context, st store.Interface, actor *ateapipb
 	ref := &ateapipb.ObjectRef{Atespace: actor.GetMetadata().GetAtespace(), Name: actor.GetMetadata().GetName()}
 	for _, vol := range getMountedActorVolumes(ctx, ref, actor.GetActorVolumes(), template) {
 		slog.InfoContext(ctx, "Detaching volume from node", slog.String("volume_id", vol.GetStorageVolumeId()), slog.String("node", node))
-		err := getVolumePlugin().DetachVolume(ctx, vol.GetStorageVolumeId(), node)
+		err := plugin.DetachVolume(ctx, vol.GetStorageVolumeId(), node)
 		if err != nil {
 			return fmt.Errorf("failed to detach volume %q from node %q: %w", vol.GetStorageVolumeId(), node, err)
 		}
