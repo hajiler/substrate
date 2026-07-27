@@ -80,8 +80,7 @@ var (
 
 	showVersion = pflag.Bool("version", false, "Print version and exit.")
 
-	volumePlugin = pflag.String("volume-plugin", "mock", "The volume plugin to use: mock|csi")
-	csiEndpoint  = pflag.String("csi-endpoint", "", "The UDS endpoint path for the CSI driver (required if volume-plugin is csi)")
+	csiEndpoints = pflag.StringSlice("csi-endpoints", nil, "The list of CSI driver UDS endpoints (e.g. unix:///run/csi/csi.sock)")
 )
 
 func main() {
@@ -176,21 +175,19 @@ func main() {
 		wrappedGCS = ategcs.NewGCSClient(gcsClient)
 	}
 
-	var volPlugin volume.VolumePluginWorkerPlane
-	switch *volumePlugin {
-	case "csi":
-		if *csiEndpoint == "" {
-			serverboot.Fatal(ctx, "Failed to initialize volume plugin", fmt.Errorf("--csi-endpoint is required when --volume-plugin is csi"))
-		}
-		csiClient, err := csi.NewCSIClient(*csiEndpoint)
+	volPlugins := make(map[string]volume.VolumePluginWorkerPlane)
+	for _, endpoint := range *csiEndpoints {
+		csiClient, err := csi.NewCSIClient(endpoint)
 		if err != nil {
 			serverboot.Fatal(ctx, "Failed to initialize CSI client", err)
 		}
-		volPlugin = csi.NewPlugin(csiClient)
-		slog.InfoContext(ctx, "Using CSI volume plugin", slog.String("endpoint", *csiEndpoint))
-	default:
-		volPlugin = volume.NewMockVolumePlugin()
-		slog.InfoContext(ctx, "Using Mock volume plugin")
+		csiPlugin := csi.NewPlugin(csiClient)
+		driverName, err := csiPlugin.DriverName(ctx)
+		if err != nil {
+			serverboot.Fatal(ctx, "Failed to get CSI driver name", err)
+		}
+		volPlugins[driverName] = csiPlugin
+		slog.InfoContext(ctx, "Registered CSI volume plugin", slog.String("driver", driverName), slog.String("endpoint", endpoint))
 	}
 
 	wmService := NewService(
@@ -199,7 +196,7 @@ func main() {
 		wrappedAnonGCS,
 		wrappedGCS,
 		imageCache,
-		volPlugin,
+		volPlugins,
 	)
 
 	lis, err := net.Listen("tcp", ":"+strconv.Itoa(*port))
@@ -234,7 +231,7 @@ type AteomHerder struct {
 	imageCache    *imagecache.Store
 	anonGCSClient ategcs.ObjectStorage
 	gcsClient     ategcs.ObjectStorage
-	volumePlugin  volume.VolumePluginWorkerPlane
+	volumePlugins map[string]volume.VolumePluginWorkerPlane
 }
 
 var _ ateletpb.AteomHerderServer = (*AteomHerder)(nil)
@@ -246,14 +243,14 @@ func NewService(
 	anonGCSClient ategcs.ObjectStorage,
 	gcsClient ategcs.ObjectStorage,
 	imageCache *imagecache.Store,
-	volumePlugin volume.VolumePluginWorkerPlane,
+	volumePlugins map[string]volume.VolumePluginWorkerPlane,
 ) *AteomHerder {
 	wms := &AteomHerder{
 		ateomDialer:   ateomDialer,
 		imageCache:    imageCache,
 		anonGCSClient: anonGCSClient,
 		gcsClient:     gcsClient,
-		volumePlugin:  volumePlugin,
+		volumePlugins: volumePlugins,
 	}
 	return wms
 }

@@ -140,7 +140,7 @@ type ActorWorkflow struct {
 	sandboxConfigLister listersv1alpha1.SandboxConfigLister
 	kubeClient          kubernetes.Interface
 	secretCache         *envSecretCache
-	volumePlugin        volume.VolumePluginControlPlane
+	volumePlugins       map[string]volume.VolumePluginControlPlane
 }
 
 // NewActorWorkflow creates a new ActorWorkflow.
@@ -152,7 +152,7 @@ func NewActorWorkflow(
 	workerPoolLister listersv1alpha1.WorkerPoolLister,
 	sandboxConfigLister listersv1alpha1.SandboxConfigLister,
 	kubeClient kubernetes.Interface,
-	volumePlugin volume.VolumePluginControlPlane,
+	volumePlugins map[string]volume.VolumePluginControlPlane,
 ) *ActorWorkflow {
 	return &ActorWorkflow{
 		store:               store,
@@ -164,7 +164,7 @@ func NewActorWorkflow(
 		sandboxConfigLister: sandboxConfigLister,
 		kubeClient:          kubeClient,
 		secretCache:         newEnvSecretCache(envSecretCacheTTL),
-		volumePlugin:        volumePlugin,
+		volumePlugins:       volumePlugins,
 	}
 }
 
@@ -185,7 +185,7 @@ func (w *ActorWorkflow) ResumeActor(ctx context.Context, actorRef resources.Acto
 	steps := []WorkflowStep[*ResumeInput, *ResumeState]{
 		&LoadActorForResumeStep{store: w.store, actorTemplateLister: w.actorTemplateLister},
 		&AssignWorkerStep{store: w.store, workerCache: w.workerCache, scheduler: w.scheduler},
-		&AttachVolumesStep{store: w.store, volumePlugin: w.volumePlugin},
+		&AttachVolumesStep{store: w.store, volumePlugins: w.volumePlugins},
 		&CallAteletRestoreStep{store: w.store, dialer: w.dialer, kubeClient: w.kubeClient, secretCache: w.secretCache, workerPoolLister: w.workerPoolLister, sandboxConfigLister: w.sandboxConfigLister, scheduler: w.scheduler},
 		&FinalizeRunningStep{store: w.store},
 	}
@@ -214,7 +214,7 @@ func (w *ActorWorkflow) SuspendActor(ctx context.Context, actorRef resources.Act
 		&LoadActorForSuspendStep{store: w.store, actorTemplateLister: w.actorTemplateLister},
 		&MarkSuspendingStep{store: w.store},
 		&CallAteletSuspendStep{store: w.store, dialer: w.dialer},
-		&DetachVolumesStep{store: w.store, volumePlugin: w.volumePlugin},
+		&DetachVolumesStep{store: w.store, volumePlugins: w.volumePlugins},
 		&FinalizeSuspendedStep{store: w.store},
 	}
 
@@ -242,7 +242,7 @@ func (w *ActorWorkflow) PauseActor(ctx context.Context, actorRef resources.Actor
 		&LoadActorForPauseStep{store: w.store, actorTemplateLister: w.actorTemplateLister},
 		&MarkPausingStep{store: w.store},
 		&CallAteletPauseStep{store: w.store, dialer: w.dialer},
-		&DetachVolumesForPauseStep{store: w.store, volumePlugin: w.volumePlugin},
+		&DetachVolumesForPauseStep{store: w.store, volumePlugins: w.volumePlugins},
 		&FinalizePausedStep{store: w.store},
 	}
 

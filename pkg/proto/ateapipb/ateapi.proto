@@ -130,6 +130,7 @@ message ExternalVolume {
     DELETING = 2;
   }
   Status status = 4;
+  map<string, string> volume_context = 5;
 }
 
 message Actor {

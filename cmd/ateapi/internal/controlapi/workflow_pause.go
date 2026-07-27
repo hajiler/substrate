@@ -176,8 +176,8 @@ func (s *CallAteletPauseStep) RetryBackoff() *wait.Backoff { return nil }
 // TODO: There is no difference between suspend and pause for now, but we could optimize
 // pause by not detaching. We would need to make sure Resume is idempotent.
 type DetachVolumesForPauseStep struct {
-	store        store.Interface
-	volumePlugin volume.VolumePluginControlPlane
+	store         store.Interface
+	volumePlugins map[string]volume.VolumePluginControlPlane
 }
 
 func (s *DetachVolumesForPauseStep) Name() string { return "DetachVolumesForPause" }
@@ -192,7 +192,7 @@ func (s *DetachVolumesForPauseStep) CheckPrerequisite(ctx context.Context, input
 }
 
 func (s *DetachVolumesForPauseStep) Execute(ctx context.Context, input *PauseInput, state *PauseState) error {
-	return detachActorVolumes(ctx, s.store, s.volumePlugin, state.Actor, state.ActorTemplate, "pause")
+	return detachActorVolumes(ctx, s.store, s.volumePlugins, state.Actor, state.ActorTemplate, "pause")
 }
 
 func (s *DetachVolumesForPauseStep) RetryBackoff() *wait.Backoff { return nil }

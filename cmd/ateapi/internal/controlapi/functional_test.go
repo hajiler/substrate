@@ -322,7 +322,15 @@ func setupTest(t *testing.T, ns string) *testContext {
 		return insecure.NewCredentials(), nil
 	}
 
-	service := NewService(persistence, wc, actorTemplateLister, workerPoolLister, sandboxConfigLister, dialer, k8sClient, volume.NewMockVolumePlugin())
+	mockPlugin := volume.NewMockVolumePlugin()
+	mockDriverName, err := mockPlugin.DriverName(ctx)
+	if err != nil {
+		t.Fatalf("failed to get mock driver name: %v", err)
+	}
+	volPlugins := map[string]volume.VolumePluginControlPlane{
+		mockDriverName: mockPlugin,
+	}
+	service := NewService(persistence, wc, actorTemplateLister, workerPoolLister, sandboxConfigLister, dialer, k8sClient, volPlugins)
 
 	// 5. Start REAL gRPC Server for ATE API
 	grpcServer := grpc.NewServer(grpc.UnaryInterceptor(ateinterceptors.ServerUnaryInterceptor))

@@ -31,7 +31,8 @@ type Service struct {
 	actorTemplateLister listersv1alpha1.ActorTemplateLister
 	workerPoolLister    listersv1alpha1.WorkerPoolLister
 	actorWorkflow       *ActorWorkflow
-	volumePlugin        volume.VolumePluginControlPlane
+	volumePlugins       map[string]volume.VolumePluginControlPlane
+	kubeClient          kubernetes.Interface
 }
 
 var _ ateapipb.ControlServer = (*Service)(nil)
@@ -45,15 +46,16 @@ func NewService(
 	sandboxConfigLister listersv1alpha1.SandboxConfigLister,
 	dialer *AteletDialer,
 	kubeClient kubernetes.Interface,
-	volumePlugin volume.VolumePluginControlPlane,
+	volumePlugins map[string]volume.VolumePluginControlPlane,
 ) *Service {
 	s := &Service{
 		persistence:         persistence,
 		actorTemplateLister: actorTemplateLister,
 		workerPoolLister:    workerPoolLister,
 		dialer:              dialer,
-		actorWorkflow:       NewActorWorkflow(persistence, workerCache, dialer, actorTemplateLister, workerPoolLister, sandboxConfigLister, kubeClient, volumePlugin),
-		volumePlugin:        volumePlugin,
+		actorWorkflow:       NewActorWorkflow(persistence, workerCache, dialer, actorTemplateLister, workerPoolLister, sandboxConfigLister, kubeClient, volumePlugins),
+		volumePlugins:       volumePlugins,
+		kubeClient:          kubeClient,
 	}
 
 	return s
