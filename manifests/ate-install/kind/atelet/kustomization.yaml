@@ -35,6 +35,8 @@ patches:
               - --localhost-registry-replacement=kind-registry:5000
               - --grpc-server-cred-bundle=/run/podidentity.podcert.ate.dev/credential-bundle.pem
               - --client-ca-certs=/run/podidentity.podcert.ate.dev/trust-bundle.pem
+              - --volume-plugin=csi
+              - --csi-endpoint=unix:///run/csi-hostpath/csi.sock
               env:
               - name: OTEL_EXPORTER_OTLP_ENDPOINT
                 value: http://opentelemetry-collector.otel-system.svc:4317
@@ -51,3 +53,11 @@ patches:
                 value: rustfsadmin
               - name: AWS_SECRET_ACCESS_KEY
                 value: rustfsadmin
+              volumeMounts:
+              - name: csi-socket
+                mountPath: /run/csi-hostpath
+            volumes:
+            - name: csi-socket
+              hostPath:
+                path: /var/lib/kubelet/plugins/csi-hostpath
+                type: DirectoryOrCreate
