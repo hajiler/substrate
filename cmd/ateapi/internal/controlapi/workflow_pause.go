@@ -25,7 +25,6 @@ import (
 	"github.com/agent-substrate/substrate/cmd/ateapi/internal/store"
 	"github.com/agent-substrate/substrate/internal/proto/ateletpb"
 	"github.com/agent-substrate/substrate/internal/resources"
-	"github.com/agent-substrate/substrate/internal/volume"
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	listersv1alpha1 "github.com/agent-substrate/substrate/pkg/client/listers/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
@@ -176,8 +175,8 @@ func (s *CallAteletPauseStep) RetryBackoff() *wait.Backoff { return nil }
 // TODO: There is no difference between suspend and pause for now, but we could optimize
 // pause by not detaching. We would need to make sure Resume is idempotent.
 type DetachVolumesForPauseStep struct {
-	store         store.Interface
-	volumePlugins map[string]volume.VolumePluginControlPlane
+	store          store.Interface
+	pluginRegistry PluginRegistry
 }
 
 func (s *DetachVolumesForPauseStep) Name() string { return "DetachVolumesForPause" }
@@ -192,7 +191,7 @@ func (s *DetachVolumesForPauseStep) CheckPrerequisite(ctx context.Context, input
 }
 
 func (s *DetachVolumesForPauseStep) Execute(ctx context.Context, input *PauseInput, state *PauseState) error {
-	return detachActorVolumes(ctx, s.store, s.volumePlugins, state.Actor, state.ActorTemplate, "pause")
+	return detachActorVolumes(ctx, s.store, s.pluginRegistry, state.Actor, state.ActorTemplate, "pause")
 }
 
 func (s *DetachVolumesForPauseStep) RetryBackoff() *wait.Backoff { return nil }

@@ -59,27 +59,6 @@ patches:
                 value: "10000"
               - name: OTEL_METRIC_EXPORT_TIMEOUT
                 value: "10000"
-              volumeMounts:
-              - name: csi-socket
-                mountPath: /run/csi-hostpath
-            volumes:
-            - name: csi-socket
-              hostPath:
-                path: /var/lib/kubelet/plugins/csi-hostpath
-                type: DirectoryOrCreate
-  - target:
-      group: apps
-      version: v1
-      kind: Deployment
-      name: ate-api-server
-      namespace: ate-system
-    patch: |-
-      - op: add
-        path: /spec/template/spec/containers/0/args/-
-        value: "--volume-plugin=csi"
-      - op: add
-        path: /spec/template/spec/containers/0/args/-
-        value: "--csi-endpoint=unix:///run/csi-hostpath/csi.sock"
   - patch: |-
       apiVersion: apps/v1
       kind: DaemonSet

@@ -15,9 +15,13 @@
 package controlapi
 
 import (
+	"context"
+	"sync"
+
 	"github.com/agent-substrate/substrate/cmd/ateapi/internal/store"
 	"github.com/agent-substrate/substrate/cmd/ateapi/internal/workercache"
 	"github.com/agent-substrate/substrate/internal/volume"
+	"github.com/agent-substrate/substrate/internal/volume/csi"
 	listersv1alpha1 "github.com/agent-substrate/substrate/pkg/client/listers/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"k8s.io/client-go/kubernetes"
@@ -27,17 +31,25 @@ import (
 // Service implements ateapipb.Control
 type Service struct {
 	ateapipb.UnimplementedControlServer
-	persistence         store.Interface
-	dialer              *AteletDialer
-	actorTemplateLister listersv1alpha1.ActorTemplateLister
-	workerPoolLister    listersv1alpha1.WorkerPoolLister
-	storageClassLister  storagev1listers.StorageClassLister
-	actorWorkflow       *ActorWorkflow
-	volumePlugins       map[string]volume.VolumePluginControlPlane
-	kubeClient          kubernetes.Interface
+	persistence           store.Interface
+	dialer                *AteletDialer
+	actorTemplateLister   listersv1alpha1.ActorTemplateLister
+	workerPoolLister      listersv1alpha1.WorkerPoolLister
+	csiDriverConfigLister listersv1alpha1.CSIDriverConfigLister
+	storageClassLister    storagev1listers.StorageClassLister
+	actorWorkflow         *ActorWorkflow
+
+	mu            sync.RWMutex
+	volumePlugins map[string]volume.VolumePluginControlPlane
+	kubeClient    kubernetes.Interface
 }
 
 var _ ateapipb.ControlServer = (*Service)(nil)
+
+// PluginRegistry defines the interface for dynamic CSI plugin resolution.
+type PluginRegistry interface {
+	GetPlugin(ctx context.Context, name string) (volume.VolumePluginControlPlane, error)
+}
 
 // NewService creates a service.
 func NewService(
@@ -46,20 +58,42 @@ func NewService(
 	actorTemplateLister listersv1alpha1.ActorTemplateLister,
 	workerPoolLister listersv1alpha1.WorkerPoolLister,
 	sandboxConfigLister listersv1alpha1.SandboxConfigLister,
+	csiDriverConfigLister listersv1alpha1.CSIDriverConfigLister,
 	storageClassLister storagev1listers.StorageClassLister,
 	dialer *AteletDialer,
 	kubeClient kubernetes.Interface,
 	volumePlugins map[string]volume.VolumePluginControlPlane,
 ) *Service {
 	s := &Service{
-		persistence:         persistence,
-		actorTemplateLister: actorTemplateLister,
-		workerPoolLister:    workerPoolLister,
-		storageClassLister:  storageClassLister,
-		dialer:              dialer,
-		actorWorkflow:       NewActorWorkflow(persistence, workerCache, dialer, actorTemplateLister, workerPoolLister, sandboxConfigLister, storageClassLister, kubeClient, volumePlugins),
-		volumePlugins:       volumePlugins,
-		kubeClient:          kubeClient,
+		persistence:           persistence,
+		actorTemplateLister:   actorTemplateLister,
+		workerPoolLister:      workerPoolLister,
+		csiDriverConfigLister: csiDriverConfigLister,
+		storageClassLister:    storageClassLister,
+		dialer:                dialer,
+		volumePlugins:         volumePlugins,
+		kubeClient:            kubeClient,
 	}
+	s.actorWorkflow = NewActorWorkflow(persistence, workerCache, dialer, actorTemplateLister, workerPoolLister, sandboxConfigLister, storageClassLister, kubeClient, s)
 	return s
+}
+
+// GetPlugin retrieves a CSI volume plugin by driver name, dynamically discovering it if not present.
+func (s *Service) GetPlugin(ctx context.Context, driverName string) (volume.VolumePluginControlPlane, error) {
+	s.mu.RLock()
+	plugin, ok := s.volumePlugins[driverName]
+	s.mu.RUnlock()
+	if ok {
+		return plugin, nil
+	}
+
+	csiPlugin, err := csi.NewCSIPlugin(ctx, s.csiDriverConfigLister, driverName, true /*isController*/)
+	if err != nil {
+		return nil, err
+	}
+
+	s.mu.Lock()
+	s.volumePlugins[driverName] = csiPlugin
+	s.mu.Unlock()
+	return csiPlugin, nil
 }

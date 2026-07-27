@@ -41,7 +41,6 @@ import (
 	"github.com/agent-substrate/substrate/internal/serverboot"
 	"github.com/agent-substrate/substrate/internal/version"
 	"github.com/agent-substrate/substrate/internal/volume"
-	"github.com/agent-substrate/substrate/internal/volume/csi"
 	"github.com/agent-substrate/substrate/pkg/client/clientset/versioned"
 	"github.com/agent-substrate/substrate/pkg/client/informers/externalversions"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
@@ -88,9 +87,6 @@ var (
 	showVersion     = pflag.Bool("version", false, "Print version and exit.")
 	logLevelFlag    = pflag.String("log-level", "info", "Minimum log level: debug, info, warn, or error.")
 	clientJWTCAFile = pflag.String("client-jwt-ca-cert", ateapiauth.DefaultServiceAccountCAFile, "CA cert file used to verify TLS when fetching the OIDC discovery document and JWKS for JWT authentication. Defaults to the in-cluster service account CA.")
-
-	// TODO(security): Implement TLS/mTLS for network-based CSI connections
-	csiControllerEndpoints = pflag.StringSlice("csi-controller-endpoints", nil, "The list of CSI Controller driver endpoints (e.g. tcp://host:port or unix://path)")
 )
 
 func main() {
@@ -155,6 +151,7 @@ func main() {
 	actorTemplateLister := ateFactory.Api().V1alpha1().ActorTemplates().Lister()
 	workerPoolLister := ateFactory.Api().V1alpha1().WorkerPools().Lister()
 	sandboxConfigLister := ateFactory.Api().V1alpha1().SandboxConfigs().Lister()
+	csiDriverConfigLister := ateFactory.Api().V1alpha1().CSIDriverConfigs().Lister()
 
 	workerPodInformerFactory, workerPodInformer := controlapi.WorkerPodInformer(clientset)
 	ateletPodInformerFactory, ateletPodInformer := controlapi.AteletInformer(clientset)
@@ -181,22 +178,8 @@ func main() {
 	}
 
 	volPlugins := make(map[string]volume.VolumePluginControlPlane)
-	for _, endpoint := range *csiControllerEndpoints {
-		csiClient, err := csi.NewCSIClient(endpoint)
-		if err != nil {
-			serverboot.Fatal(ctx, "Failed to initialize CSI client", err)
-		}
-		csiPlugin := csi.NewPlugin(csiClient)
-		csiDriverName, err := csiPlugin.DriverName(ctx)
-		if err != nil {
-			serverboot.Fatal(ctx, "Failed to get CSI driver name", err)
-		}
-		volPlugins[csiDriverName] = csiPlugin
-		slog.InfoContext(ctx, "Registered CSI volume plugin", slog.String("driver", csiDriverName), slog.String("endpoint", endpoint))
-	}
-
 	ateletDialer := controlapi.NewAteletDialer(workerPodInformer.GetIndexer(), ateletPodInformer.GetIndexer(), *ateletClientCredBundle, *podIdentityCACerts)
-	sm := controlapi.NewService(redisPersistence, workerCache, actorTemplateLister, workerPoolLister, sandboxConfigLister, storageClassLister, ateletDialer, clientset, volPlugins)
+	sm := controlapi.NewService(redisPersistence, workerCache, actorTemplateLister, workerPoolLister, sandboxConfigLister, csiDriverConfigLister, storageClassLister, ateletDialer, clientset, volPlugins)
 
 	jwtIssuerDiscoveryClient := buildK8sServiceAccountIssuerDiscoveryClient(ctx, *clientJWTCAFile, *clientJWTIssuer)
 

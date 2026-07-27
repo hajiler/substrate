@@ -30,6 +30,8 @@ import (
 	"strings"
 	"time"
 
+	"sync"
+
 	"cloud.google.com/go/storage"
 	"github.com/agent-substrate/substrate/cmd/atelet/internal/ategcs"
 	"github.com/agent-substrate/substrate/internal/ateerrors"
@@ -42,8 +44,11 @@ import (
 	"github.com/agent-substrate/substrate/internal/resources"
 	"github.com/agent-substrate/substrate/internal/serverboot"
 	"github.com/agent-substrate/substrate/internal/version"
+
 	"github.com/agent-substrate/substrate/internal/volume"
-	"github.com/agent-substrate/substrate/internal/volume/csi"
+	"github.com/agent-substrate/substrate/pkg/client/clientset/versioned"
+	"github.com/agent-substrate/substrate/pkg/client/informers/externalversions"
+	listersv1alpha1 "github.com/agent-substrate/substrate/pkg/client/listers/api/v1alpha1"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -64,6 +69,8 @@ import (
 	"google.golang.org/grpc/status"
 	"k8s.io/apimachinery/pkg/api/validate/content"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/utils/lru"
 )
 
@@ -80,8 +87,6 @@ var (
 
 	showVersion  = pflag.Bool("version", false, "Print version and exit.")
 	logLevelFlag = pflag.String("log-level", "info", "Minimum log level: debug, info, warn, or error.")
-
-	csiEndpoints = pflag.StringSlice("csi-endpoints", nil, "The list of CSI driver UDS endpoints (e.g. unix:///run/csi/csi.sock)")
 )
 
 func main() {
@@ -180,19 +185,18 @@ func main() {
 	}
 
 	volPlugins := make(map[string]volume.VolumePluginWorkerPlane)
-	for _, endpoint := range *csiEndpoints {
-		csiClient, err := csi.NewCSIClient(endpoint)
-		if err != nil {
-			serverboot.Fatal(ctx, "Failed to initialize CSI client", err)
-		}
-		csiPlugin := csi.NewPlugin(csiClient)
-		driverName, err := csiPlugin.DriverName(ctx)
-		if err != nil {
-			serverboot.Fatal(ctx, "Failed to get CSI driver name", err)
-		}
-		volPlugins[driverName] = csiPlugin
-		slog.InfoContext(ctx, "Registered CSI volume plugin", slog.String("driver", driverName), slog.String("endpoint", endpoint))
+	_, ateClient, err := newKubeClients()
+	if err != nil {
+		serverboot.Fatal(ctx, "Failed to create Kubernetes clients", err)
 	}
+
+	ateFactory := externalversions.NewSharedInformerFactory(ateClient, 0)
+	csiDriverConfigLister := ateFactory.Api().V1alpha1().CSIDriverConfigs().Lister()
+
+	stopCh := make(chan struct{})
+	defer close(stopCh)
+	ateFactory.Start(stopCh)
+	ateFactory.WaitForCacheSync(stopCh)
 
 	wmService := NewService(
 		ctx,
@@ -201,6 +205,7 @@ func main() {
 		wrappedGCS,
 		imageCache,
 		volPlugins,
+		csiDriverConfigLister,
 	)
 
 	lis, err := net.Listen("tcp", ":"+strconv.Itoa(*port))
@@ -231,11 +236,13 @@ func main() {
 type AteomHerder struct {
 	ateletpb.UnimplementedAteomHerderServer
 
-	ateomDialer   *AteomDialer
-	imageCache    *imagecache.Store
-	anonGCSClient ategcs.ObjectStorage
-	gcsClient     ategcs.ObjectStorage
-	volumePlugins map[string]volume.VolumePluginWorkerPlane
+	ateomDialer           *AteomDialer
+	imageCache            *imagecache.Store
+	anonGCSClient         ategcs.ObjectStorage
+	gcsClient             ategcs.ObjectStorage
+	mu                    sync.RWMutex
+	volumePlugins         map[string]volume.VolumePluginWorkerPlane
+	csiDriverConfigLister listersv1alpha1.CSIDriverConfigLister
 }
 
 var _ ateletpb.AteomHerderServer = (*AteomHerder)(nil)
@@ -248,13 +255,15 @@ func NewService(
 	gcsClient ategcs.ObjectStorage,
 	imageCache *imagecache.Store,
 	volumePlugins map[string]volume.VolumePluginWorkerPlane,
+	csiDriverConfigLister listersv1alpha1.CSIDriverConfigLister,
 ) *AteomHerder {
 	wms := &AteomHerder{
-		ateomDialer:   ateomDialer,
-		imageCache:    imageCache,
-		anonGCSClient: anonGCSClient,
-		gcsClient:     gcsClient,
-		volumePlugins: volumePlugins,
+		ateomDialer:           ateomDialer,
+		imageCache:            imageCache,
+		anonGCSClient:         anonGCSClient,
+		gcsClient:             gcsClient,
+		volumePlugins:         volumePlugins,
+		csiDriverConfigLister: csiDriverConfigLister,
 	}
 	return wms
 }
@@ -1301,4 +1310,20 @@ func ateletServerTLSConfig(servingBundlePath, clientCAPath string) (*tls.Config,
 		ClientAuth:     tls.RequireAndVerifyClientCert,
 		ClientCAs:      clientCAs,
 	}, nil
+}
+
+func newKubeClients() (*kubernetes.Clientset, versioned.Interface, error) {
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		return nil, nil, fmt.Errorf("get cluster config: %w", err)
+	}
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, nil, fmt.Errorf("create clientset: %w", err)
+	}
+	ateClient, err := versioned.NewForConfig(config)
+	if err != nil {
+		return nil, nil, fmt.Errorf("create ate clientset: %w", err)
+	}
+	return clientset, ateClient, nil
 }

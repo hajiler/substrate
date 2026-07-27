@@ -172,9 +172,6 @@ func TestDeleteActor_MultipleVolumeDeletionFailures(t *testing.T) {
 	tc.service.volumePlugins = map[string]volume.VolumePluginControlPlane{
 		"substrate.io/mock": plugin,
 	}
-	tc.service.actorWorkflow.volumePlugins = map[string]volume.VolumePluginControlPlane{
-		"substrate.io/mock": plugin,
-	}
 
 	actor := &ateapipb.Actor{
 		Metadata: &ateapipb.ResourceMetadata{

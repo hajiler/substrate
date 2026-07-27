@@ -315,6 +315,7 @@ func setupTest(t *testing.T, ns string) *testContext {
 	actorTemplateLister := substrateInformerFactory.Api().V1alpha1().ActorTemplates().Lister()
 	workerPoolLister := substrateInformerFactory.Api().V1alpha1().WorkerPools().Lister()
 	sandboxConfigLister := substrateInformerFactory.Api().V1alpha1().SandboxConfigs().Lister()
+	csiDriverConfigLister := substrateInformerFactory.Api().V1alpha1().CSIDriverConfigs().Lister()
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -354,7 +355,7 @@ func setupTest(t *testing.T, ns string) *testContext {
 	volPlugins := map[string]volume.VolumePluginControlPlane{
 		mockDriverName: mockPlugin,
 	}
-	service := NewService(persistence, wc, actorTemplateLister, workerPoolLister, sandboxConfigLister, scLister, dialer, k8sClient, volPlugins)
+	service := NewService(persistence, wc, actorTemplateLister, workerPoolLister, sandboxConfigLister, csiDriverConfigLister, scLister, dialer, k8sClient, volPlugins)
 
 	// 5. Start REAL gRPC Server for ATE API
 	grpcServer := grpc.NewServer(grpc.UnaryInterceptor(ateinterceptors.ServerUnaryInterceptor))
@@ -1064,9 +1065,6 @@ func TestResumeActor_VolumeCreationFailure(t *testing.T) {
 	tc.service.volumePlugins = map[string]volume.VolumePluginControlPlane{
 		"substrate.io/mock": plugin,
 	}
-	tc.service.actorWorkflow.volumePlugins = map[string]volume.VolumePluginControlPlane{
-		"substrate.io/mock": plugin,
-	}
 
 	// Call CreateActor RPC directly
 	_, err := tc.client.CreateActor(context.Background(), &ateapipb.CreateActorRequest{
@@ -1215,9 +1213,6 @@ func TestResumeActor_VolumeCreationRetrySuccess(t *testing.T) {
 
 	plugin := &retrySuccessVolumePlugin{}
 	tc.service.volumePlugins = map[string]volume.VolumePluginControlPlane{
-		"substrate.io/mock": plugin,
-	}
-	tc.service.actorWorkflow.volumePlugins = map[string]volume.VolumePluginControlPlane{
 		"substrate.io/mock": plugin,
 	}
 

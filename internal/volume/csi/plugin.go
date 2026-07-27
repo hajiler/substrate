@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 
 	"github.com/agent-substrate/substrate/internal/volume"
+	listersv1alpha1 "github.com/agent-substrate/substrate/pkg/client/listers/api/v1alpha1"
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -244,4 +245,45 @@ func getStandardCapabilities() []*csi.VolumeCapability {
 			},
 		},
 	}
+}
+
+// NewCSIPlugin establishes a CSI client and returns a verified Plugin instance.
+func NewCSIPlugin(ctx context.Context, lister listersv1alpha1.CSIDriverConfigLister, driverName string, isController bool) (*Plugin, error) {
+	if lister == nil {
+		return nil, fmt.Errorf("missing csiDriverConfigLister")
+	}
+
+	cfg, err := lister.Get(driverName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve CSIDriverConfig for %q: %w", driverName, err)
+	}
+
+	var endpoint string
+	switch {
+	case isController:
+		endpoint = cfg.Spec.ControllerEndpoint
+	case cfg.Spec.NodeSocketOverride != "":
+		endpoint = cfg.Spec.NodeSocketOverride
+		slog.InfoContext(ctx, "Found CSIDriverConfig with NodeSocketOverride", slog.String("driver", driverName), slog.String("endpoint", endpoint))
+	default:
+		endpoint = fmt.Sprintf("unix:///var/lib/kubelet/plugins/%s/csi.sock", driverName)
+	}
+	csiClient, err := NewCSIClient(endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize CSI client from endpoint %q: %w", endpoint, err)
+	}
+	csiPlugin := NewPlugin(csiClient)
+
+	// Verify CSI plugin reported name matches requested name.
+	reportedName, err := csiPlugin.DriverName(ctx)
+	if err != nil {
+		csiClient.Close()
+		return nil, fmt.Errorf("failed to get driver name from plugin %q: %w", driverName, err)
+	}
+	if reportedName != driverName {
+		csiClient.Close()
+		return nil, fmt.Errorf("reported driver name %q does not match requested name %q", reportedName, driverName)
+	}
+
+	return csiPlugin, nil
 }

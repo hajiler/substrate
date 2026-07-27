@@ -16,6 +16,7 @@ package controlapi
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -270,9 +271,11 @@ func TestCreateActorVolumes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			plugin := volume.NewMockVolumePlugin()
-			plugins := map[string]volume.VolumePluginControlPlane{
-				"mock-standard": plugin,
-				"mock-fast":     plugin,
+			registry := &mockPluginRegistry{
+				plugins: map[string]volume.VolumePluginControlPlane{
+					"mock-standard": plugin,
+					"mock-fast":     plugin,
+				},
 			}
 			scLister := &fakeStorageClassLister{
 				storageClasses: map[string]*storagev1.StorageClass{
@@ -286,7 +289,7 @@ func TestCreateActorVolumes(t *testing.T) {
 					},
 				},
 			}
-			res, err := createActorVolumes(ctx, plugins, scLister, "actor-uid-123", tt.tmpl, tt.inputVolumes)
+			res, err := createActorVolumes(ctx, registry, scLister, "actor-uid-123", tt.tmpl, tt.inputVolumes)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("createActorVolumes() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -340,10 +343,12 @@ func TestDeleteActorVolumes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			plugin := &trackingVolumePlugin{}
-			plugins := map[string]volume.VolumePluginControlPlane{
-				"mock": plugin,
+			registry := &mockPluginRegistry{
+				plugins: map[string]volume.VolumePluginControlPlane{
+					"mock": plugin,
+				},
 			}
-			err := deleteActorVolumes(ctx, plugins, tt.actorUID, tt.volumes)
+			err := deleteActorVolumes(ctx, registry, tt.actorUID, tt.volumes)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("deleteActorVolumes() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -353,4 +358,16 @@ func TestDeleteActorVolumes(t *testing.T) {
 			}
 		})
 	}
+}
+
+type mockPluginRegistry struct {
+	plugins map[string]volume.VolumePluginControlPlane
+}
+
+func (m *mockPluginRegistry) GetPlugin(ctx context.Context, name string) (volume.VolumePluginControlPlane, error) {
+	p, ok := m.plugins[name]
+	if !ok {
+		return nil, fmt.Errorf("plugin %q not found in mock registry", name)
+	}
+	return p, nil
 }
