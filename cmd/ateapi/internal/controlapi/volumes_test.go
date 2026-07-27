@@ -24,7 +24,30 @@ import (
 	"github.com/agent-substrate/substrate/internal/volume"
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
+	storagev1 "k8s.io/api/storage/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	k8slabels "k8s.io/apimachinery/pkg/labels"
+	storagev1listers "k8s.io/client-go/listers/storage/v1"
 )
+
+type fakeStorageClassLister struct {
+	storageClasses map[string]*storagev1.StorageClass
+}
+
+func (f *fakeStorageClassLister) List(selector k8slabels.Selector) (ret []*storagev1.StorageClass, err error) {
+	return nil, nil
+}
+
+func (f *fakeStorageClassLister) Get(name string) (*storagev1.StorageClass, error) {
+	sc, ok := f.storageClasses[name]
+	if !ok {
+		return nil, k8serrors.NewNotFound(storagev1.Resource("storageclass"), name)
+	}
+	return sc, nil
+}
+
+var _ storagev1listers.StorageClassLister = (*fakeStorageClassLister)(nil)
 
 func TestInitialActorVolumes_PendingState(t *testing.T) {
 	tmpl := &atev1alpha1.ActorTemplate{
@@ -62,17 +85,32 @@ func TestInitialActorVolumes_PendingState(t *testing.T) {
 	want := []*ateapipb.ExternalVolume{
 		{
 			VolumeName: "data-vol-1",
-			VolumeType: "mock",
+			VolumeType: "mock-standard",
 			Status:     ateapipb.ExternalVolume_STATUS_PENDING,
 		},
 		{
 			VolumeName: "data-vol-2",
-			VolumeType: "mock",
+			VolumeType: "mock-fast",
 			Status:     ateapipb.ExternalVolume_STATUS_PENDING,
 		},
 	}
 
-	initVols := initialActorVolumes(tmpl)
+	scLister := &fakeStorageClassLister{
+		storageClasses: map[string]*storagev1.StorageClass{
+			"standard": {
+				ObjectMeta:  metav1.ObjectMeta{Name: "standard"},
+				Provisioner: "mock-standard",
+			},
+			"fast": {
+				ObjectMeta:  metav1.ObjectMeta{Name: "fast"},
+				Provisioner: "mock-fast",
+			},
+		},
+	}
+	initVols, err := initialActorVolumes(context.Background(), scLister, tmpl)
+	if err != nil {
+		t.Fatalf("initialActorVolumes failed: %v", err)
+	}
 	if diff := cmp.Diff(want, initVols, protocmp.Transform()); diff != "" {
 		t.Errorf("initialActorVolumes mismatch (-want +got):\n%s", diff)
 	}
@@ -140,7 +178,7 @@ func TestCreateActorVolumes(t *testing.T) {
 			inputVolumes: []*ateapipb.ExternalVolume{
 				{
 					VolumeName: "vol1",
-					VolumeType: "mock",
+					VolumeType: "mock-standard",
 					Status:     ateapipb.ExternalVolume_STATUS_PENDING,
 				},
 				{
@@ -157,7 +195,7 @@ func TestCreateActorVolumes(t *testing.T) {
 				{
 					VolumeName:      "vol1",
 					StorageVolumeId: "mock-vol-substrate-actor-uid-123-vol1",
-					VolumeType:      "mock",
+					VolumeType:      "mock-standard",
 					Status:          ateapipb.ExternalVolume_STATUS_CREATED,
 				},
 				{
@@ -232,7 +270,23 @@ func TestCreateActorVolumes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			plugin := volume.NewMockVolumePlugin()
-			res, err := createActorVolumes(ctx, plugin, "actor-uid-123", tt.tmpl, tt.inputVolumes)
+			plugins := map[string]volume.VolumePluginControlPlane{
+				"mock-standard": plugin,
+				"mock-fast":     plugin,
+			}
+			scLister := &fakeStorageClassLister{
+				storageClasses: map[string]*storagev1.StorageClass{
+					"standard": {
+						ObjectMeta:  metav1.ObjectMeta{Name: "standard"},
+						Provisioner: "mock-standard",
+					},
+					"fast": {
+						ObjectMeta:  metav1.ObjectMeta{Name: "fast"},
+						Provisioner: "mock-fast",
+					},
+				},
+			}
+			res, err := createActorVolumes(ctx, plugins, scLister, "actor-uid-123", tt.tmpl, tt.inputVolumes)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("createActorVolumes() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -267,7 +321,7 @@ func TestDeleteActorVolumes(t *testing.T) {
 			name:     "uses storage volume ID when present",
 			actorUID: "uid-abc",
 			volumes: []*ateapipb.ExternalVolume{
-				{VolumeName: "vol1", StorageVolumeId: "storage-vol-123"},
+				{VolumeName: "vol1", StorageVolumeId: "storage-vol-123", VolumeType: "mock"},
 			},
 			wantDeleted: []string{"storage-vol-123"},
 			wantErr:     false,
@@ -276,7 +330,7 @@ func TestDeleteActorVolumes(t *testing.T) {
 			name:     "falls back to actorVolumeID when storage volume ID is empty regardless of status",
 			actorUID: "uid-abc",
 			volumes: []*ateapipb.ExternalVolume{
-				{VolumeName: "vol1", StorageVolumeId: "", Status: ateapipb.ExternalVolume_STATUS_CREATED},
+				{VolumeName: "vol1", StorageVolumeId: "", Status: ateapipb.ExternalVolume_STATUS_CREATED, VolumeType: "mock"},
 			},
 			wantDeleted: []string{"substrate-uid-abc-vol1"},
 			wantErr:     false,
@@ -286,7 +340,10 @@ func TestDeleteActorVolumes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			plugin := &trackingVolumePlugin{}
-			err := deleteActorVolumes(ctx, plugin, tt.actorUID, tt.volumes)
+			plugins := map[string]volume.VolumePluginControlPlane{
+				"mock": plugin,
+			}
+			err := deleteActorVolumes(ctx, plugins, tt.actorUID, tt.volumes)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("deleteActorVolumes() error = %v, wantErr %v", err, tt.wantErr)
 			}

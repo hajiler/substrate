@@ -46,11 +46,20 @@ func NewPlugin(client *Client) *Plugin {
 	}
 }
 
+// DriverName returns the driver name obtained from the CSI plugin.
+func (p *Plugin) DriverName(ctx context.Context) (string, error) {
+	resp, err := p.client.GetPluginInfo(ctx, &csi.GetPluginInfoRequest{})
+	if err != nil {
+		return "", err
+	}
+	return resp.GetName(), nil
+}
+
 // CreateVolume maps to CSI Controller CreateVolume.
-func (p *Plugin) CreateVolume(ctx context.Context, name string, capacity string, storageClass string) (string, error) {
+func (p *Plugin) CreateVolume(ctx context.Context, name string, capacity string, driverName string, parameters map[string]string) (string, map[string]string, error) {
 	qty, err := resource.ParseQuantity(capacity)
 	if err != nil {
-		return "", fmt.Errorf("failed to parse capacity %q: %w", capacity, err)
+		return "", nil, fmt.Errorf("failed to parse capacity %q: %w", capacity, err)
 	}
 	capBytes := qty.Value()
 
@@ -60,21 +69,19 @@ func (p *Plugin) CreateVolume(ctx context.Context, name string, capacity string,
 			RequiredBytes: capBytes,
 		},
 		VolumeCapabilities: getStandardCapabilities(),
-		Parameters: map[string]string{
-			"storageClass": storageClass,
-		},
+		Parameters:         parameters,
 	}
 
 	resp, err := p.client.CreateVolume(ctx, req)
 	if err != nil {
-		return "", fmt.Errorf("CSI CreateVolume failed: %w", err)
+		return "", nil, fmt.Errorf("CSI CreateVolume failed: %w", err)
 	}
 
 	if resp.GetVolume() == nil {
-		return "", fmt.Errorf("CSI CreateVolume response returned nil volume")
+		return "", nil, fmt.Errorf("CSI CreateVolume response returned nil volume")
 	}
 
-	return resp.GetVolume().GetVolumeId(), nil
+	return resp.GetVolume().GetVolumeId(), resp.GetVolume().GetVolumeContext(), nil
 }
 
 // DeleteVolume maps to CSI Controller DeleteVolume.
@@ -142,7 +149,7 @@ func (p *Plugin) DetachVolume(ctx context.Context, volumeID string, node string)
 
 // MountVolume maps to CSI Node NodePublishVolume.
 // It also handles NodeStageVolume staging if required by the driver.
-func (p *Plugin) MountVolume(ctx context.Context, volumeID string, targetPath string) error {
+func (p *Plugin) MountVolume(ctx context.Context, volumeID string, targetPath string, volumeContext map[string]string) error {
 	// 1. Stage the volume
 	stagingPath := filepath.Join(p.stagingDirPrefix, volumeID)
 	if err := os.MkdirAll(stagingPath, 0750); err != nil {
@@ -153,6 +160,7 @@ func (p *Plugin) MountVolume(ctx context.Context, volumeID string, targetPath st
 		VolumeId:          volumeID,
 		StagingTargetPath: stagingPath,
 		VolumeCapability:  getStandardCapabilities()[0], // Use primary capability
+		VolumeContext:     volumeContext,
 	}
 
 	_, err := p.client.NodeStageVolume(ctx, stageReq)
@@ -171,6 +179,7 @@ func (p *Plugin) MountVolume(ctx context.Context, volumeID string, targetPath st
 		TargetPath:       targetPath,
 		VolumeCapability: getStandardCapabilities()[0],
 		Readonly:         false,
+		VolumeContext:    volumeContext,
 	}
 	if stagingPath != "" {
 		req.StagingTargetPath = stagingPath

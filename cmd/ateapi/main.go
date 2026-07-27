@@ -55,6 +55,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
+	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 )
@@ -88,9 +89,8 @@ var (
 	logLevelFlag    = pflag.String("log-level", "info", "Minimum log level: debug, info, warn, or error.")
 	clientJWTCAFile = pflag.String("client-jwt-ca-cert", ateapiauth.DefaultServiceAccountCAFile, "CA cert file used to verify TLS when fetching the OIDC discovery document and JWKS for JWT authentication. Defaults to the in-cluster service account CA.")
 
-	volumePlugin = pflag.String("volume-plugin", "csi", "The volume plugin to use: mock|csi")
 	// TODO(security): Implement TLS/mTLS for network-based CSI connections
-	csiControllerEndpoint = pflag.String("csi-controller-endpoint", "", "The endpoint path for the CSI Controller driver (unix://path or tcp://host:port) (required if volume-plugin is csi)")
+	csiControllerEndpoints = pflag.StringSlice("csi-controller-endpoints", nil, "The list of CSI Controller driver endpoints (e.g. tcp://host:port or unix://path)")
 )
 
 func main() {
@@ -158,6 +158,8 @@ func main() {
 
 	workerPodInformerFactory, workerPodInformer := controlapi.WorkerPodInformer(clientset)
 	ateletPodInformerFactory, ateletPodInformer := controlapi.AteletInformer(clientset)
+	scInformerFactory := informers.NewSharedInformerFactory(clientset, 0)
+	storageClassLister := scInformerFactory.Storage().V1().StorageClasses().Lister()
 
 	syncer := controlapi.NewWorkerPoolSyncer(redisPersistence, workerPodInformer, workerPoolLister)
 	syncer.Start(ctx)
@@ -167,34 +169,34 @@ func main() {
 	workerPodInformerFactory.Start(stopCh)
 	ateletPodInformerFactory.Start(stopCh)
 	ateFactory.Start(stopCh)
+	scInformerFactory.Start(stopCh)
 
 	workerPodInformerFactory.WaitForCacheSync(stopCh)
 	ateletPodInformerFactory.WaitForCacheSync(stopCh)
 	ateFactory.WaitForCacheSync(stopCh)
+	scInformerFactory.WaitForCacheSync(stopCh)
 
 	if err := controlapi.RegisterWorkerCount(otel.Meter("ateapi"), workerCache.Workers, workerPoolLister.List); err != nil {
 		serverboot.Fatal(ctx, "Failed to register worker-count metric", err)
 	}
 
-	var volPlugin volume.VolumePluginControlPlane
-	switch *volumePlugin {
-	case "csi":
-		if *csiControllerEndpoint == "" {
-			serverboot.Fatal(ctx, "Failed to initialize volume plugin", fmt.Errorf("--csi-controller-endpoint is required when --volume-plugin is csi"))
-		}
-		csiClient, err := csi.NewCSIClient(*csiControllerEndpoint)
+	volPlugins := make(map[string]volume.VolumePluginControlPlane)
+	for _, endpoint := range *csiControllerEndpoints {
+		csiClient, err := csi.NewCSIClient(endpoint)
 		if err != nil {
 			serverboot.Fatal(ctx, "Failed to initialize CSI client", err)
 		}
-		volPlugin = csi.NewPlugin(csiClient)
-		slog.InfoContext(ctx, "Using CSI volume plugin", slog.String("endpoint", *csiControllerEndpoint))
-	default:
-		volPlugin = volume.NewMockVolumePlugin()
-		slog.InfoContext(ctx, "Using Mock volume plugin")
+		csiPlugin := csi.NewPlugin(csiClient)
+		csiDriverName, err := csiPlugin.DriverName(ctx)
+		if err != nil {
+			serverboot.Fatal(ctx, "Failed to get CSI driver name", err)
+		}
+		volPlugins[csiDriverName] = csiPlugin
+		slog.InfoContext(ctx, "Registered CSI volume plugin", slog.String("driver", csiDriverName), slog.String("endpoint", endpoint))
 	}
 
 	ateletDialer := controlapi.NewAteletDialer(workerPodInformer.GetIndexer(), ateletPodInformer.GetIndexer(), *ateletClientCredBundle, *podIdentityCACerts)
-	sm := controlapi.NewService(redisPersistence, workerCache, actorTemplateLister, workerPoolLister, sandboxConfigLister, ateletDialer, clientset, volPlugin)
+	sm := controlapi.NewService(redisPersistence, workerCache, actorTemplateLister, workerPoolLister, sandboxConfigLister, storageClassLister, ateletDialer, clientset, volPlugins)
 
 	jwtIssuerDiscoveryClient := buildK8sServiceAccountIssuerDiscoveryClient(ctx, *clientJWTCAFile, *clientJWTIssuer)
 

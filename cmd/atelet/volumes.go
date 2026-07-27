@@ -23,6 +23,8 @@ import (
 
 	"github.com/agent-substrate/substrate/internal/ateompath"
 	"github.com/agent-substrate/substrate/internal/proto/ateletpb"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func (s *AteomHerder) mountExternalVolumes(ctx context.Context, actorUID string, volumes []*ateletpb.Volume) error {
@@ -38,8 +40,12 @@ func (s *AteomHerder) mountExternalVolumes(ctx context.Context, actorUID string,
 		if err := os.MkdirAll(hostPath, 0o750); err != nil {
 			return fmt.Errorf("failed to create mount point %q: %w", hostPath, err)
 		}
-		slog.InfoContext(ctx, "Mounting volume", slog.String("volume_id", ext.GetStorageVolumeId()), slog.String("host_path", hostPath))
-		if err := s.volumePlugin.MountVolume(ctx, ext.GetStorageVolumeId(), hostPath); err != nil {
+		slog.InfoContext(ctx, "Mounting volume", slog.String("volume_id", ext.GetStorageVolumeId()), slog.String("host_path", hostPath), slog.String("volume_type", ext.GetVolumeType()))
+		plugin, ok := s.volumePlugins[ext.GetVolumeType()]
+		if !ok {
+			return fmt.Errorf("no volume plugin found for type %q", ext.GetVolumeType())
+		}
+		if err := plugin.MountVolume(ctx, ext.GetStorageVolumeId(), hostPath, ext.GetVolumeContext()); err != nil {
 			return fmt.Errorf("failed to mount volume %q to %q: %w", ext.GetStorageVolumeId(), hostPath, err)
 		}
 	}
@@ -57,9 +63,19 @@ func (s *AteomHerder) unmountExternalVolumes(ctx context.Context, actorUID strin
 			continue
 		}
 		hostPath := ateompath.VolumeHostPath(actorUID, vol.GetName())
-		slog.InfoContext(ctx, "Unmounting volume", slog.String("volume_id", ext.GetStorageVolumeId()), slog.String("host_path", hostPath))
-		if err := s.volumePlugin.UnmountVolume(ctx, ext.GetStorageVolumeId(), hostPath); err != nil {
-			errs = append(errs, fmt.Errorf("failed to unmount volume %q from %q: %w", ext.GetStorageVolumeId(), hostPath, err))
+		slog.InfoContext(ctx, "Unmounting volume", slog.String("volume_id", ext.GetStorageVolumeId()), slog.String("host_path", hostPath), slog.String("volume_type", ext.GetVolumeType()))
+		// TODO: Standardize volume plugin lookup and error handling across control plane
+		// and worker plane (e.g. via a shared helper).
+		plugin, ok := s.volumePlugins[ext.GetVolumeType()]
+		if !ok {
+			errs = append(errs, fmt.Errorf("no volume plugin found for type %q (volume %q)", ext.GetVolumeType(), ext.GetStorageVolumeId()))
+		}
+		if err := plugin.UnmountVolume(ctx, ext.GetStorageVolumeId(), hostPath); err != nil {
+			if status.Code(err) == codes.NotFound {
+				slog.WarnContext(ctx, "Volume not found during unmount, assuming already unmounted", slog.String("volume_id", ext.GetStorageVolumeId()), slog.Any("error", err))
+			} else {
+				errs = append(errs, fmt.Errorf("failed to unmount volume %q from %q: %w", ext.GetStorageVolumeId(), hostPath, err))
+			}
 		}
 	}
 	return errors.Join(errs...)

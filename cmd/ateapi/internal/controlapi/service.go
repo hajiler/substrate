@@ -21,6 +21,7 @@ import (
 	listersv1alpha1 "github.com/agent-substrate/substrate/pkg/client/listers/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"k8s.io/client-go/kubernetes"
+	storagev1listers "k8s.io/client-go/listers/storage/v1"
 )
 
 // Service implements ateapipb.Control
@@ -30,8 +31,10 @@ type Service struct {
 	dialer              *AteletDialer
 	actorTemplateLister listersv1alpha1.ActorTemplateLister
 	workerPoolLister    listersv1alpha1.WorkerPoolLister
+	storageClassLister  storagev1listers.StorageClassLister
 	actorWorkflow       *ActorWorkflow
-	volumePlugin        volume.VolumePluginControlPlane
+	volumePlugins       map[string]volume.VolumePluginControlPlane
+	kubeClient          kubernetes.Interface
 }
 
 var _ ateapipb.ControlServer = (*Service)(nil)
@@ -43,17 +46,20 @@ func NewService(
 	actorTemplateLister listersv1alpha1.ActorTemplateLister,
 	workerPoolLister listersv1alpha1.WorkerPoolLister,
 	sandboxConfigLister listersv1alpha1.SandboxConfigLister,
+	storageClassLister storagev1listers.StorageClassLister,
 	dialer *AteletDialer,
 	kubeClient kubernetes.Interface,
-	volumePlugin volume.VolumePluginControlPlane,
+	volumePlugins map[string]volume.VolumePluginControlPlane,
 ) *Service {
 	s := &Service{
 		persistence:         persistence,
 		actorTemplateLister: actorTemplateLister,
 		workerPoolLister:    workerPoolLister,
+		storageClassLister:  storageClassLister,
 		dialer:              dialer,
-		actorWorkflow:       NewActorWorkflow(persistence, workerCache, dialer, actorTemplateLister, workerPoolLister, sandboxConfigLister, kubeClient, volumePlugin),
-		volumePlugin:        volumePlugin,
+		actorWorkflow:       NewActorWorkflow(persistence, workerCache, dialer, actorTemplateLister, workerPoolLister, sandboxConfigLister, storageClassLister, kubeClient, volumePlugins),
+		volumePlugins:       volumePlugins,
+		kubeClient:          kubeClient,
 	}
 	return s
 }

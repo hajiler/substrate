@@ -90,6 +90,9 @@ func TestRoundTrip(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(src, "empty"), 0o755); err != nil {
 		t.Fatalf("mkdir empty: %v", err)
 	}
+	if err := os.Chmod(filepath.Join(src, "empty"), 0o755); err != nil {
+		t.Fatalf("chmod empty: %v", err)
+	}
 	if err := os.Symlink("a.txt", filepath.Join(src, "link")); err != nil {
 		t.Fatalf("symlink: %v", err)
 	}
