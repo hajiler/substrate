@@ -28,6 +28,9 @@ rules:
 - apiGroups: [""]
   resources: ["pods"]
   verbs: ["get", "watch", "list"]
+- apiGroups: ["ate.dev"]
+  resources: ["csidriverconfigs"]
+  verbs: ["get", "list", "watch"]
 ---
 # 3. Bind Identity to Permissions
 apiVersion: rbac.authorization.k8s.io/v1
@@ -81,11 +84,7 @@ spec:
         # runAsUser is pinned explicitly rather than relying on the base image's
         # default user.
         securityContext:
-          runAsUser: 0
-          runAsGroup: 0
-          capabilities:
-            drop:
-            - ALL
+          privileged: true
         env:
         - name: MY_NODE_NAME
           valueFrom:
@@ -122,10 +121,16 @@ spec:
           mountPath: /var/lib/ateom-gvisor
         - name: podidentity
           mountPath: /run/podidentity.podcert.ate.dev
+        - name: kubelet-plugins
+          mountPath: /var/lib/kubelet/plugins
       volumes:
       - name: run-ateom
         hostPath:
           path: /var/lib/ateom-gvisor
+          type: DirectoryOrCreate
+      - name: kubelet-plugins
+        hostPath:
+          path: /var/lib/kubelet/plugins
           type: DirectoryOrCreate
       # Identity for mutual TLS with the ate-apiserver. atelet is not behind a
       # Service, so it uses a podidentity (SPIFFE) cert rather than a servicedns

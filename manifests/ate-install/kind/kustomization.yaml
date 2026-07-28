@@ -42,27 +42,6 @@ patches:
               env:
               - name: OTEL_EXPORTER_OTLP_ENDPOINT
                 value: http://opentelemetry-collector.otel-system.svc:4317
-              volumeMounts:
-              - name: csi-socket
-                mountPath: /run/csi-hostpath
-            volumes:
-            - name: csi-socket
-              hostPath:
-                path: /var/lib/kubelet/plugins/csi-hostpath
-                type: DirectoryOrCreate
-  - target:
-      group: apps
-      version: v1
-      kind: Deployment
-      name: ate-api-server
-      namespace: ate-system
-    patch: |-
-      - op: add
-        path: /spec/template/spec/containers/0/args/-
-        value: "--volume-plugin=csi"
-      - op: add
-        path: /spec/template/spec/containers/0/args/-
-        value: "--csi-endpoint=unix:///run/csi-hostpath/csi.sock"
   - patch: |-
       apiVersion: apps/v1
       kind: DaemonSet
