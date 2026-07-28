@@ -20,10 +20,11 @@ import (
 
 // VolumePlugin abstracts storage operations.
 type VolumePlugin interface {
-	CreateVolume(ctx context.Context, name string, capacity string, storageClass string) (volumeID string, err error)
+	DriverName(ctx context.Context) (string, error)
+	CreateVolume(ctx context.Context, name string, capacity string, storageClass string, parameters map[string]string) (volumeID string, volumeContext map[string]string, err error)
 	DeleteVolume(ctx context.Context, volumeID string) error
 	AttachVolume(ctx context.Context, volumeID string, node string) error
 	DetachVolume(ctx context.Context, volumeID string, node string) error
-	MountVolume(ctx context.Context, volumeID string, targetPath string) error
+	MountVolume(ctx context.Context, volumeID string, targetPath string, volumeContext map[string]string) error
 	UnmountVolume(ctx context.Context, volumeID string, targetPath string) error
 }
