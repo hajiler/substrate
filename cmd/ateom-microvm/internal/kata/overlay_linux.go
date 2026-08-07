@@ -54,12 +54,26 @@ const (
 	// volume's contents live at <guestDurableDir>/<volumeName> and are bind-mounted
 	// from there into the containers that declare the volume.
 	guestDurableDir = "/run/ateom-durable"
+
+	// CsiFsTag is the virtio-fs tag for the actor's WRITABLE CSI volumes share,
+	// served by a third virtiofsd (or second if no durableDir is present).
+	CsiFsTag = "ateCsi"
+	// guestCsiDir is where the agent mounts CsiFsTag in the guest; each
+	// volume's contents live at <guestCsiDir>/<volumeName> and are bind-mounted
+	// from there into the containers that declare the volume.
+	guestCsiDir = "/run/ateom-csi"
 )
 
 // GuestDurableVolumeDir is the in-guest path holding one durable volume's
 // contents, i.e. the bind source for that volume's container mount points.
 func GuestDurableVolumeDir(volumeName string) string {
 	return guestDurableDir + "/" + volumeName
+}
+
+// GuestCsiVolumeDir is the in-guest path holding one CSI volume's
+// contents, i.e. the bind source for that volume's container mount points.
+func GuestCsiVolumeDir(volumeName string) string {
+	return guestCsiDir + "/" + volumeName
 }
 
 // SharedDir is the host directory virtiofsd serves into the guest as the RO base.
@@ -193,7 +207,10 @@ func ReconstructSharedDirFromImage(ctx context.Context, bundleRootfs, restoreID,
 //
 // withDurableShare additionally mounts the writable durable-dir share, whose
 // per-volume subdirectories the containers bind-mount at their declared paths.
-func (a *AgentClient) CreateSandboxForActor(ctx context.Context, sandboxID, hostname string, withDurableShare bool) error {
+//
+// withCsiShare additionally mounts the writable CSI volumes share, whose
+// per-volume subdirectories the containers bind-mount at their declared paths.
+func (a *AgentClient) CreateSandboxForActor(ctx context.Context, sandboxID, hostname string, withDurableShare bool, withCsiShare bool) error {
 	storages := []*agentpb.Storage{{
 		Driver:     virtioFSDriver,
 		Source:     FsTag,
@@ -206,6 +223,14 @@ func (a *AgentClient) CreateSandboxForActor(ctx context.Context, sandboxID, host
 			Source:     DurableFsTag,
 			Fstype:     typeVirtioFS,
 			MountPoint: guestDurableDir,
+		})
+	}
+	if withCsiShare {
+		storages = append(storages, &agentpb.Storage{
+			Driver:     virtioFSDriver,
+			Source:     CsiFsTag,
+			Fstype:     typeVirtioFS,
+			MountPoint: guestCsiDir,
 		})
 	}
 	return a.CreateSandbox(ctx, &agentpb.CreateSandboxRequest{

@@ -81,13 +81,14 @@ func (s *AteomService) CheckpointWorkload(ctx context.Context, req *ateompb.Chec
 	// captures. DATA_ON_GOLDEN is restore-only (a DataOnGolden commit arrives
 	// here as plain DATA) and lands in the default rejection.
 	durable := hasDurableVolumes(req.GetSpec().GetContainers())
+	csi := hasCsiVolumes(req.GetSpec().GetContainers())
 	scope := req.GetScope()
 	switch scope {
 	case ateompb.SnapshotScope_SNAPSHOT_SCOPE_FULL:
 	case ateompb.SnapshotScope_SNAPSHOT_SCOPE_DATA:
-		if !durable {
+		if !durable && !csi {
 			return nil, status.Error(codes.FailedPrecondition,
-				"no durable-dir volumes found for a Data-scope snapshot")
+				"no durable-dir or CSI volumes found for a Data-scope snapshot")
 		}
 	default:
 		return nil, status.Errorf(codes.InvalidArgument, "unsupported snapshot scope: %v", scope)
@@ -271,7 +272,7 @@ func (s *AteomService) teardownActor(ctx context.Context, id string, ra *running
 		}
 		// Kill the virtiofsds (after CH, their only client): the overlay RO lower's
 		// and, when the actor has durable-dir volumes, the writable share's.
-		for _, cmd := range []*exec.Cmd{ra.vfsdCmd, ra.durableVfsdCmd} {
+		for _, cmd := range []*exec.Cmd{ra.vfsdCmd, ra.durableVfsdCmd, ra.csiVfsdCmd} {
 			if cmd != nil && cmd.Process != nil {
 				_ = cmd.Process.Kill()
 				_, _ = cmd.Process.Wait()

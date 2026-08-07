@@ -1,0 +1,54 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ate-demo-counter-microvm-csi
+
+---
+
+apiVersion: ate.dev/v1alpha1
+kind: WorkerPool
+metadata:
+  name: counter-microvm-csi
+  namespace: ate-demo-counter-microvm-csi
+  labels:
+    workload: counter-microvm-csi
+spec:
+  replicas: 1
+  sandboxClass: microvm
+  sandboxConfigName: counter-microvm
+  ateomImage: ko://github.com/agent-substrate/substrate/cmd/ateom-microvm
+
+---
+
+apiVersion: ate.dev/v1alpha1
+kind: ActorTemplate
+metadata:
+  name: counter-microvm-csi
+  namespace: ate-demo-counter-microvm-csi
+spec:
+  sandboxClass: microvm
+  pauseImage: "registry.k8s.io/pause:3.10.2@sha256:f548e0e8e3dc1896ca956272154dde3314e8cc4fde0a57577ee9fa1c63f5baf4"
+  containers:
+  - name: counter
+    image: ko://github.com/agent-substrate/substrate/demos/counter
+    readyz:
+      httpGet:
+        path: /readyz
+        port: 80
+    volumeMounts:
+    - name: data
+      mountPath: /home/counter
+  workerSelector:
+    matchLabels:
+      workload: counter-microvm-csi
+  snapshotsConfig:
+    onPause: Full
+    onCommit: Data
+    onResume:
+      fromData: Golden
+    location: gs://ate-snapshots/ate-demo-counter-microvm-csi/
+  volumes:
+  - name: data
+    externalVolumeTemplate:
+      capacity: 1Gi
+      storageClassName: csi-hostpath-sc

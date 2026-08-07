@@ -197,6 +197,19 @@ func (s *AteomService) restoreFullScope(ctx context.Context, p actorBootParams, 
 		}()
 	}
 
+	var csiVfsdCmd *exec.Cmd
+	if hasCsiVolumes(containers) {
+		if csiVfsdCmd, err = s.stageCsiShare(ctx, rr, actorUID); err != nil {
+			return err
+		}
+		defer func() {
+			if retErr != nil && csiVfsdCmd.Process != nil {
+				_ = csiVfsdCmd.Process.Kill()
+				_, _ = csiVfsdCmd.Process.Wait()
+			}
+		}()
+	}
+
 	// Networking: rebuild the per-activation veth + tap; the snapshot's virtio-net
 	// is fd-backed, so CH needs fresh tap FDs (net_fds) on restore.
 	if err := ateomnet.SetupActorNetwork(ctx, ateomnet.NetworkConfig{
@@ -277,7 +290,7 @@ func (s *AteomService) restoreFullScope(ctx context.Context, p actorBootParams, 
 	}
 
 	ra := &runningActor{
-		chCmd: chCmd, vfsdCmd: vfsdCmd, durableVfsdCmd: durableVfsdCmd,
+		chCmd: chCmd, vfsdCmd: vfsdCmd, durableVfsdCmd: durableVfsdCmd, csiVfsdCmd: csiVfsdCmd,
 		apiSocket: apiSocket, baseID: srcID, restoreSourceDir: restoreDir,
 	}
 
@@ -351,6 +364,8 @@ func rewriteSnapshotSocketPaths(snapshotDir, id string) error {
 				fm["socket"] = kata.VirtiofsdSocketPath(id)
 			case kata.DurableFsTag:
 				fm["socket"] = kata.DurableVirtiofsdSocketPath(id)
+			case kata.CsiFsTag:
+				fm["socket"] = kata.CsiVirtiofsdSocketPath(id)
 			default:
 				return fmt.Errorf("snapshot config %q has fs device with unknown tag %q", cfgPath, tag)
 			}

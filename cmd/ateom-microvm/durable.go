@@ -91,11 +91,12 @@ func durableMounts(mounts []*ateompb.DurableDirVolumeMount) []specs.Mount {
 // The spec is copied rather than mutated so the bundle's on-disk config.json and
 // the carrier's view stay as prepared — only the workload sees the binds.
 func workloadSpec(c actorContainer) *specs.Spec {
-	if len(c.durableMounts) == 0 {
+	if len(c.durableMounts) == 0 && len(c.csiMounts) == 0 {
 		return c.spec
 	}
 	spec := *c.spec
 	spec.Mounts = append(append([]specs.Mount(nil), c.spec.Mounts...), durableMounts(c.durableMounts)...)
+	spec.Mounts = append(spec.Mounts, csiMounts(c.csiMounts)...)
 	return &spec
 }
 

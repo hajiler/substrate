@@ -417,7 +417,21 @@ func (s *AteomHerder) Checkpoint(ctx context.Context, req *ateletpb.CheckpointRe
 
 	sandboxRec.SnapshotFiles = resp.GetSnapshotFiles()
 	if len(sandboxRec.SnapshotFiles) == 0 {
-		return nil, ateerrors.NewGRPCError(ctx, codes.DataLoss, ateerrors.ReasonInvalidCheckpointResult, ateerrors.ActorCrashedMetadata(), errors.New("ateom reported no snapshot files for checkpoint"))
+		hasDurable := false
+		hasCsi := false
+		for _, vol := range req.GetSpec().GetVolumes() {
+			if vol.GetType() == ateletpb.VolumeType_VOLUME_TYPE_DURABLE_DIR {
+				hasDurable = true
+			} else if vol.GetType() == ateletpb.VolumeType_VOLUME_TYPE_EXTERNAL {
+				hasCsi = true
+			}
+		}
+		isDataScope := req.GetScope() == ateletpb.SnapshotScope_SNAPSHOT_SCOPE_DATA
+		if isDataScope && hasCsi && !hasDurable {
+			// OK: CSI volumes don't produce snapshot files in DATA scope.
+		} else {
+			return nil, ateerrors.NewGRPCError(ctx, codes.DataLoss, ateerrors.ReasonInvalidCheckpointResult, ateerrors.ActorCrashedMetadata(), errors.New("ateom reported no snapshot files for checkpoint"))
+		}
 	}
 	sandboxRec.Atespace = req.GetAtespace()
 	sandboxRec.ActorName = req.GetActorName()
@@ -943,18 +957,27 @@ func (s *AteomHerder) dialAteom(ctx context.Context, targetAteomUid string) (ate
 // the ateom-facing one.
 func buildAteomWorkloadSpec(spec *ateletpb.WorkloadSpec) *ateompb.WorkloadSpec {
 	ddVolumes := make(map[string]bool)
+	csiVolumes := make(map[string]bool)
 	for _, vol := range spec.GetVolumes() {
 		if vol.GetType() == ateletpb.VolumeType_VOLUME_TYPE_DURABLE_DIR {
 			ddVolumes[vol.GetName()] = true
+		} else if vol.GetType() == ateletpb.VolumeType_VOLUME_TYPE_EXTERNAL {
+			csiVolumes[vol.GetName()] = true
 		}
 	}
 
 	out := &ateompb.WorkloadSpec{}
 	for _, ctr := range spec.GetContainers() {
 		var ddMounts []*ateompb.DurableDirVolumeMount
+		var csiMounts []*ateompb.VolumeMount
 		for _, vm := range ctr.GetVolumeMounts() {
 			if ddVolumes[vm.GetName()] {
 				ddMounts = append(ddMounts, &ateompb.DurableDirVolumeMount{
+					VolumeName: vm.GetName(),
+					MountPath:  vm.GetMountPath(),
+				})
+			} else if csiVolumes[vm.GetName()] {
+				csiMounts = append(csiMounts, &ateompb.VolumeMount{
 					VolumeName: vm.GetName(),
 					MountPath:  vm.GetMountPath(),
 				})
@@ -963,6 +986,7 @@ func buildAteomWorkloadSpec(spec *ateletpb.WorkloadSpec) *ateompb.WorkloadSpec {
 		out.Containers = append(out.Containers, &ateompb.Container{
 			Name:                   ctr.GetName(),
 			DurableDirVolumeMounts: ddMounts,
+			CsiVolumeMounts:        csiMounts,
 			Readyz:                 toAteomReadyz(ctr.GetReadyz()),
 		})
 	}

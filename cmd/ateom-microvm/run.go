@@ -65,6 +65,10 @@ type runningActor struct {
 	// durable-dir volumes. nil when the actor declares none. Owned and torn down
 	// exactly like vfsdCmd.
 	durableVfsdCmd *exec.Cmd
+	// csiVfsdCmd is the third virtiofsd, serving the actor's writable
+	// CSI volumes. nil when the actor declares none. Owned and torn down
+	// exactly like vfsdCmd.
+	csiVfsdCmd *exec.Cmd
 	// apiSocket is the CH api-socket for this ateom-owned VMM.
 	apiSocket string
 
@@ -132,6 +136,9 @@ type actorContainer struct {
 	// durableMounts are the durable-dir volumes this container mounts, and where
 	// (see durable.go). Empty for containers that declare none.
 	durableMounts []*ateompb.DurableDirVolumeMount
+	// csiMounts are the CSI volumes this container mounts, and where (see csi.go).
+	// Empty for containers that declare none.
+	csiMounts []*ateompb.VolumeMount
 }
 
 // resolvedRuntime holds the concrete binary/config paths for a request, taken
@@ -372,6 +379,23 @@ func (s *AteomService) coldBootActor(ctx context.Context, p actorBootParams) (re
 		}()
 	}
 
+	// CSI volumes (if any) share one writable virtio-fs share, served by
+	// a third virtiofsd from the host directory atelet prepared; each volume is
+	// a subdirectory of it.
+	csi := hasCsiVolumes(containers)
+	var csiVfsdCmd *exec.Cmd
+	if csi {
+		if csiVfsdCmd, err = s.stageCsiShare(ctx, rr, actorUID); err != nil {
+			return err
+		}
+		defer func() {
+			if retErr != nil && csiVfsdCmd.Process != nil {
+				_ = csiVfsdCmd.Process.Kill()
+				_, _ = csiVfsdCmd.Process.Wait()
+			}
+		}()
+	}
+
 	// Launch a bare VMM (CH + api-socket); ateom owns this process for teardown.
 	apiSocket := filepath.Join(kata.VMDir(actorUID), "clh-api.sock")
 	chCmd, client, err := ch.LaunchVMM(ctx, ch.LaunchVMMOptions{
@@ -395,7 +419,7 @@ func (s *AteomService) coldBootActor(ctx context.Context, p actorBootParams) (re
 	// writable upper is a guest tmpfs). serialLog is also read on a failed agent dial
 	// below, so keep it here.
 	serialLog := filepath.Join(kata.VMDir(actorUID), "serial.log")
-	vmCfg := buildVMConfig(actorUID, kernel, image, kparams, serialLog, memMiB, vcpus, durable)
+	vmCfg := buildVMConfig(actorUID, kernel, image, kparams, serialLog, memMiB, vcpus, durable, csi)
 	if err := client.CreateVM(ctx, vmCfg); err != nil {
 		return fmt.Errorf("while creating VM: %w", err)
 	}
@@ -449,7 +473,7 @@ func (s *AteomService) coldBootActor(ctx context.Context, p actorBootParams) (re
 	}()
 
 	// Post-boot kata-agent setup: sandbox, guest networking, start each container.
-	if err := s.startActorContainers(ctx, ac, actorUID, vsockPath, ctrs, durable); err != nil {
+	if err := s.startActorContainers(ctx, ac, actorUID, vsockPath, ctrs, durable, csi); err != nil {
 		return err
 	}
 
@@ -458,7 +482,7 @@ func (s *AteomService) coldBootActor(ctx context.Context, p actorBootParams) (re
 		return fmt.Errorf("while waiting for container readyz: %w", err)
 	}
 
-	ra := &runningActor{chCmd: chCmd, vfsdCmd: vfsdCmd, durableVfsdCmd: durableVfsdCmd, apiSocket: apiSocket, baseID: actorUID, logAgent: ac}
+	ra := &runningActor{chCmd: chCmd, vfsdCmd: vfsdCmd, durableVfsdCmd: durableVfsdCmd, csiVfsdCmd: csiVfsdCmd, apiSocket: apiSocket, baseID: actorUID, logAgent: ac}
 	if err := s.activateActorNetworking(p.actorRef.Atespace, p.actorRef.Name, p.actorVersion, p.egressGatewayAddress); err != nil {
 		return err
 	}
@@ -513,6 +537,7 @@ func (s *AteomService) buildActorContainers(actorUID string, containers []*ateom
 			bundleRootfs:  bundleRootfs,
 			spec:          spec,
 			durableMounts: c.GetDurableDirVolumeMounts(),
+			csiMounts:     c.GetCsiVolumeMounts(),
 		}
 	}
 	return ctrs, nil
@@ -571,7 +596,7 @@ func (s *AteomService) guestConfig(rr resolvedRuntime) (memMiB, vcpus int, kpara
 //
 // withDurable adds a second virtio-fs device for the actor's writable durable-dir
 // volumes (see durable.go), served by its own virtiofsd on the same PCI segment.
-func buildVMConfig(id, kernel, image, kparams, serialLog string, memMiB, vcpus int, withDurable bool) ch.VmConfig {
+func buildVMConfig(id, kernel, image, kparams, serialLog string, memMiB, vcpus int, withDurable bool, withCsi bool) ch.VmConfig {
 	console := "ttyS0"
 	if runtime.GOARCH == "arm64" {
 		console = "ttyAMA0"
@@ -589,7 +614,7 @@ func buildVMConfig(id, kernel, image, kparams, serialLog string, memMiB, vcpus i
 		Disks: []ch.DiskConfig{
 			{Path: image, Readonly: true, ImageType: "Raw", NumQueues: int32(vcpus), QueueSize: 1024},
 		},
-		Fs:       buildFsConfigs(id, withDurable),
+		Fs:       buildFsConfigs(id, withDurable, withCsi),
 		Platform: &ch.PlatformConfig{NumPciSegments: 2},
 		Rng:      &ch.RngConfig{Src: "/dev/urandom"},
 		Serial:   &ch.ConsoleConfig{Mode: "File", File: serialLog},
@@ -600,7 +625,7 @@ func buildVMConfig(id, kernel, image, kparams, serialLog string, memMiB, vcpus i
 // buildFsConfigs returns the VM's virtio-fs devices: the overlay RO lower's
 // share, plus the writable durable-dir share when the actor has one. Both sit on
 // PCI segment 1 (the segment buildVMConfig reserves for virtio-fs).
-func buildFsConfigs(id string, withDurable bool) []ch.FsConfig {
+func buildFsConfigs(id string, withDurable bool, withCsi bool) []ch.FsConfig {
 	fs := []ch.FsConfig{{
 		Tag: kata.FsTag, Socket: kata.VirtiofsdSocketPath(id),
 		NumQueues: 1, QueueSize: 1024, PciSegment: 1,
@@ -608,6 +633,12 @@ func buildFsConfigs(id string, withDurable bool) []ch.FsConfig {
 	if withDurable {
 		fs = append(fs, ch.FsConfig{
 			Tag: kata.DurableFsTag, Socket: kata.DurableVirtiofsdSocketPath(id),
+			NumQueues: 1, QueueSize: 1024, PciSegment: 1,
+		})
+	}
+	if withCsi {
+		fs = append(fs, ch.FsConfig{
+			Tag: kata.CsiFsTag, Socket: kata.CsiVirtiofsdSocketPath(id),
 			NumQueues: 1, QueueSize: 1024, PciSegment: 1,
 		})
 	}
@@ -621,12 +652,12 @@ func buildFsConfigs(id string, withDurable bool) []ch.FsConfig {
 //
 // durable says the actor has durable-dir volumes: the sandbox then also mounts
 // the writable durable share, and each container binds the volumes it declared.
-func (s *AteomService) startActorContainers(ctx context.Context, ac *kata.AgentClient, id, vsockPath string, ctrs []actorContainer, durable bool) error {
+func (s *AteomService) startActorContainers(ctx context.Context, ac *kata.AgentClient, id, vsockPath string, ctrs []actorContainer, durable bool, csi bool) error {
 	// Establish the agent sandbox + the kataShared virtio-fs mount (the RO base for
 	// every container's overlay lower). All containers share it, so use the first
 	// container's hostname.
 	sbCtx, sbCancel := context.WithTimeout(ctx, 20*time.Second)
-	err := ac.CreateSandboxForActor(sbCtx, id, ctrs[0].spec.Hostname, durable)
+	err := ac.CreateSandboxForActor(sbCtx, id, ctrs[0].spec.Hostname, durable, csi)
 	sbCancel()
 	if err != nil {
 		return fmt.Errorf("while creating agent sandbox: %w", err)
