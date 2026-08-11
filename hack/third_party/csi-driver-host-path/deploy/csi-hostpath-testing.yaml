@@ -65,13 +65,16 @@ spec:
                   - hostpath.csi.k8s.io
             topologyKey: kubernetes.io/hostname
       containers:
-        - name: socat
-          image: registry.k8s.io/sig-storage/hostpathplugin:v1.17.1
-          command:
-          - socat
+        - name: ghostunnel
+          image: ghostunnel/ghostunnel:v1.7.1
+          command: ["/usr/bin/ghostunnel"]
           args:
-            - tcp-listen:10000,fork,reuseaddr
-            - unix-connect:/csi/csi.sock
+            - "server"
+            - "--listen=0.0.0.0:10000"
+            - "--target=unix:/csi/csi.sock"
+            - "--keystore=/run/servicedns/credential-bundle.pem"
+            - "--cacert=/run/podidentity-ca/trust-bundle.pem"
+            - "--allow-all"
           securityContext:
             # This is necessary only for systems with SELinux, where
             # non-privileged sidecar containers cannot access unix domain socket
@@ -80,8 +83,30 @@ spec:
           volumeMounts:
           - mountPath: /csi
             name: socket-dir
+          - mountPath: /run/servicedns
+            name: servicedns-certs
+            readOnly: true
+          - mountPath: /run/podidentity-ca
+            name: podidentity-ca
+            readOnly: true
       volumes:
         - hostPath:
             path: /var/lib/kubelet/plugins/csi-hostpath
             type: DirectoryOrCreate
           name: socket-dir
+        - name: servicedns-certs
+          projected:
+            sources:
+            - podCertificate:
+                signerName: servicedns.podcert.ate.dev/identity
+                keyType: ECDSAP256
+                credentialBundlePath: credential-bundle.pem
+        - name: podidentity-ca
+          projected:
+            sources:
+            - clusterTrustBundle:
+                signerName: podidentity.podcert.ate.dev/identity
+                labelSelector:
+                  matchLabels:
+                    podcert.ate.dev/canarying: live
+                path: trust-bundle.pem

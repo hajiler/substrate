@@ -124,6 +124,8 @@ spec:
               fieldPath: metadata.uid
         - name: OTEL_RESOURCE_ATTRIBUTES
           value: k8s.namespace.name=$(POD_NAMESPACE),k8s.pod.name=$(POD_NAME),k8s.pod.uid=$(POD_UID),service.instance.id=$(POD_UID)
+        - name: GRPC_ENFORCE_ALPN_ENABLED
+          value: "false"
         # OTLP exporter settings are shared by every control plane component;
         # see manifests/ate-install/ate-otel-config.yaml. Listed first so the
         # per-developer ConfigMap below can still override a key.

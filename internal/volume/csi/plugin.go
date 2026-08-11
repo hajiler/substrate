@@ -16,18 +16,29 @@ package csi
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 
 	"github.com/agent-substrate/substrate/internal/ateompath"
+	"github.com/agent-substrate/substrate/internal/credbundle"
 	"github.com/agent-substrate/substrate/internal/volume"
+	v1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	listersv1alpha1 "github.com/agent-substrate/substrate/pkg/client/listers/api/v1alpha1"
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"k8s.io/apimachinery/pkg/api/resource"
+)
+
+var (
+	// DefaultClientCertPath is the path to the pod identity credential bundle.
+	DefaultClientCertPath = "/run/podidentity.podcert.ate.dev/credential-bundle.pem"
+	// DefaultCACertPath is the path to the servicedns trust bundle.
+	DefaultCACertPath = "/run/servicedns.podcert.ate.dev/trust-bundle.pem"
 )
 
 // Plugin implements volume.VolumePluginWorkerPlane using the CSI Client.
@@ -269,7 +280,17 @@ func NewCSIPlugin(ctx context.Context, lister listersv1alpha1.CSIDriverConfigLis
 	default:
 		endpoint = "unix://" + ateompath.KubeletPluginSocketPath(driverName)
 	}
-	csiClient, err := NewCSIClient(endpoint)
+
+	var tlsCfg *tls.Config
+	if isController {
+		var err error
+		tlsCfg, err = resolveTLSConfig(ctx, cfg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve TLS config for %q: %w", driverName, err)
+		}
+	}
+
+	csiClient, err := NewCSIClient(endpoint, tlsCfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize CSI client from endpoint %q: %w", endpoint, err)
 	}
@@ -287,4 +308,41 @@ func NewCSIPlugin(ctx context.Context, lister listersv1alpha1.CSIDriverConfigLis
 	}
 
 	return csiPlugin, nil
+}
+
+func resolveTLSConfig(ctx context.Context, cfg *v1alpha1.CSIDriverConfig) (*tls.Config, error) {
+	tlsCfg := cfg.Spec.TLS
+
+	if tlsCfg == nil || !tlsCfg.Enabled {
+		return nil, nil
+	}
+
+	if !tlsCfg.UsePodIdentity {
+		// TODO: Support manual certificates loaded from Secrets specified in the config.
+		return nil, fmt.Errorf("only pod identity TLS is supported in this configuration")
+	}
+
+	// Load CA Pool
+	caPoolBytes, err := os.ReadFile(DefaultCACertPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read CA cert from %q: %w", DefaultCACertPath, err)
+	}
+	caPool := x509.NewCertPool()
+	if !caPool.AppendCertsFromPEM(caPoolBytes) {
+		return nil, fmt.Errorf("failed to parse CA certs from %q", DefaultCACertPath)
+	}
+
+	return &tls.Config{
+		MinVersion: tls.VersionTLS13,
+		RootCAs:    caPool,
+		ServerName: tlsCfg.ServerName,
+		NextProtos: []string{"h2"},
+		// Load Client Certificate dynamically.
+		// In Substrate's Pod Identity model, certificates are projected into the pod
+		// as files by the kubelet (via Substrate's podcertcontroller).
+		// Kubelet handles the rotation of these files on disk.
+		// credbundle.ClientLoader monitors these files and automatically reloads
+		// them when they change, ensuring rotation is picked up on subsequent handshakes.
+		GetClientCertificate: credbundle.ClientLoader(DefaultClientCertPath), // Will be set below to load from pod identity bundle
+	}, nil
 }

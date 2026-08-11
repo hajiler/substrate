@@ -471,14 +471,6 @@ deploy_ate_system() {
   # schemas and RBAC (role.yaml has no other apply path).
   deploy_crds
 
-  if [[ "${SETUP_CSI:-false}" == "true" ]]; then
-    if [[ "${ATE_INSTALL_KIND:-false}" == "true" ]]; then
-      setup_csi
-    else
-      echo "Warning: CSI setup is only supported for Kind local installations. Skipping."
-    fi
-  fi
-
   # Enforce per-class SandboxConfig asset requirements (applied before any
   # SandboxConfig so the defaults below are validated too).
   run_kubectl apply -f manifests/ate-install/sandboxconfig-validation.yaml
@@ -512,6 +504,14 @@ deploy_ate_system() {
   # in a separate change.
   if [[ "$(store_backend)" == "postgres" ]]; then
     run_kubectl apply -f manifests/ate-install/postgres.yaml
+  fi
+
+  if [[ "${SETUP_CSI:-false}" == "true" ]]; then
+    if [[ "${ATE_INSTALL_KIND:-false}" == "true" ]]; then
+      setup_csi
+    else
+      echo "Warning: CSI setup is only supported for Kind local installations. Skipping."
+    fi
   fi
 
   local manifests=""
