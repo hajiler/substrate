@@ -84,6 +84,17 @@ else
   echo "/dev/kvm not available: micro-VM support disabled (gVisor still works)."
 fi
 
+# Attempt to load NFS kernel modules on the host if not already active
+if [ -f /proc/filesystems ] && ! grep -q "nfsd" /proc/filesystems; then
+  if [ "$(id -u)" -eq 0 ]; then
+    modprobe nfs 2>/dev/null || true
+    modprobe nfsd 2>/dev/null || true
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo modprobe nfs 2>/dev/null || true
+    sudo modprobe nfsd 2>/dev/null || true
+  fi
+fi
+
 echo "Creating kind configuration for cluster '${KIND_CLUSTER_NAME}' (ipFamily=${IP_FAMILY})..."
 cat <<EOF > "${ROOT}/bin/kind-config.yaml"
 kind: Cluster

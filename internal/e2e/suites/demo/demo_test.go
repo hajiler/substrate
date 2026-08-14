@@ -1206,13 +1206,10 @@ func createActorTemplate(ctx context.Context, t *testing.T, clients *e2e.Clients
 }
 
 func createActorTemplateWithExternalVolume(ctx context.Context, t *testing.T, clients *e2e.Clients, nsObj *e2e.Namespace, onCommit, onPause v1alpha1.SnapshotScope, fromData v1alpha1.ResumeSource) (*v1alpha1.ActorTemplate, error) {
-	var scName string
-	switch {
-	// TODO: add support for other storage classes in e2e environment (e.g. csi-nfs-sc)
-	case hasStorageClass(ctx, clients, "csi-hostpath-sc"):
-		scName = "csi-hostpath-sc"
-	default:
-		t.Skip("Skipping TestExternalVolumeLifecycle: neither csi-hostpath-sc nor csi-nfs-sc StorageClass found")
+	scName := e2e.StorageClass
+	if !hasStorageClass(ctx, clients, scName) {
+		t.Logf("WARNING: StorageClass %q not found in cluster; skipping TestExternalVolumeLifecycle", scName)
+		t.Skipf("Skipping TestExternalVolumeLifecycle: StorageClass %q not found", scName)
 	}
 
 	modify := func(at *v1alpha1.ActorTemplate) {

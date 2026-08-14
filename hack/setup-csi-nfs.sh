@@ -18,10 +18,24 @@ set -o errexit -o nounset -o pipefail
 
 # Check if NFS server module is loaded on the host
 if [ -f /proc/filesystems ] && ! grep -q "nfsd" /proc/filesystems; then
-  echo "ERROR: NFS server support (nfsd) is not active in the host kernel."
-  echo "Please load the nfsd module on your host by running:"
-  echo "  sudo modprobe nfsd"
-  exit 1
+  if [ "$(id -u)" -eq 0 ]; then
+    modprobe nfs 2>/dev/null || true
+    modprobe nfsd 2>/dev/null || true
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo modprobe nfs 2>/dev/null || true
+    sudo modprobe nfsd 2>/dev/null || true
+  fi
+fi
+
+if [ -f /proc/filesystems ] && ! grep -q "nfsd" /proc/filesystems; then
+  if [[ "${ATE_INSTALL_KIND:-false}" == "true" ]]; then
+    echo "ERROR: NFS server support (nfsd) is not active in the host kernel."
+    echo "Please load the nfsd module on your host by running:"
+    echo "  sudo modprobe nfsd"
+    exit 1
+  else
+    echo "Warning: NFS server support (nfsd) not found in local kernel. If running against a remote cluster, ensure the cluster nodes support NFS."
+  fi
 fi
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
