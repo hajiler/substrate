@@ -63,12 +63,13 @@ function usage() {
   echo "Overall infrastructure (all infrastructure components):"
   echo ""
   echo "  --deploy-ate-system                    Deploy core system (CRDs, atelet, apiserver)"
-  echo "  --setup-csi                            Setup CSI hostpath and NFS drivers (Kind only)"
+  echo "  --setup-csi                            Setup CSI NFS driver"
   echo "  --delete-ate-system                    Delete core system"
   echo "  --delete-all                           Delete core system and all registered demos"
   echo "  --ateapi-client-auth=cert|token        Select how in-cluster clients authenticate to ateapi for --deploy-ate-system (default: cert; the server always accepts both)"
   echo "  --atenet-router=envoy|agentgateway     Select the atenet router dataplane (default: envoy)"
   echo "  --store-backend=redis|postgres         Configure the ateapi store backend (default: redis)"
+  echo "  --setup-csi=true|false                 Enable or disable CSI NFS driver setup during --deploy-ate-system (default: true)"
   echo ""
   echo "Infrastructure components:"
   echo ""
@@ -457,8 +458,7 @@ deploy_crds() {
 
 setup_csi() {
   log_step "setup_csi"
-  "${ROOT}/hack/setup-csi-hostpath-kind.sh"
-  "${ROOT}/hack/setup-csi-nfs-kind.sh"
+  "${ROOT}/hack/setup-csi-nfs.sh"
 }
 
 deploy_ate_system() {
@@ -471,12 +471,8 @@ deploy_ate_system() {
   # schemas and RBAC (role.yaml has no other apply path).
   deploy_crds
 
-  if [[ "${SETUP_CSI:-false}" == "true" ]]; then
-    if [[ "${ATE_INSTALL_KIND:-false}" == "true" ]]; then
-      setup_csi
-    else
-      echo "Warning: CSI setup is only supported for Kind local installations. Skipping."
-    fi
+  if [[ "${SETUP_CSI:-true}" == "true" ]]; then
+    setup_csi
   fi
 
   # Enforce per-class SandboxConfig asset requirements (applied before any
@@ -716,6 +712,14 @@ delete_ate_system() {
   if [[ "${ATE_INSTALL_KIND:-false}" == "true" ]]; then
     kubectl kustomize manifests/ate-install/kind --load-restrictor LoadRestrictionsNone \
       | run_kubectl delete --ignore-not-found -f -
+    run_kubectl delete --ignore-not-found csidriverconfig nfs.csi.k8s.io || true
+    run_kubectl delete --ignore-not-found storageclass csi-nfs-sc || true
+    run_kubectl delete --ignore-not-found service csi-nfs-controller -n kube-system || true
+    run_kubectl delete --ignore-not-found deployment csi-nfs-controller -n kube-system || true
+    run_kubectl delete --ignore-not-found daemonset csi-nfs-node -n kube-system || true
+    run_kubectl delete --ignore-not-found -f "${ROOT}/hack/third_party/csi-driver-nfs/deploy/example/nfs-provisioner/nfs-server.yaml" || true
+    run_kubectl delete --ignore-not-found -f "${ROOT}/hack/third_party/csi-driver-nfs/deploy/rbac-csi-nfs.yaml" || true
+    run_kubectl delete --ignore-not-found -f "${ROOT}/hack/third_party/csi-driver-nfs/deploy/csi-nfs-driverinfo.yaml" || true
   else
     run_kubectl delete --ignore-not-found -f manifests/ate-install
   fi
@@ -787,12 +791,21 @@ done
 # flag they configure (e.g. --benchmark-worker-count before/after
 # --deploy-benchmarks). The dispatch loop below also accepts these flags but
 # treats them as no-ops since the value is already captured here.
-SETUP_CSI=false
+SETUP_CSI="${SETUP_CSI:-true}"
 BENCHMARK_WORKER_COUNT=1
 BENCHMARK_SANDBOX_CLASS=gvisor
 prescan_args=("$@")
 for ((i = 0; i < ${#prescan_args[@]}; i++)); do
   case "${prescan_args[i]}" in
+    --setup-csi=*)
+      SETUP_CSI="${prescan_args[i]#*=}"
+      ;;
+    --setup-csi)
+      SETUP_CSI="true"
+      ;;
+    --no-setup-csi)
+      SETUP_CSI="false"
+      ;;
     --ateapi-client-auth=*) ATE_ATEAPI_CLIENT_AUTH="${prescan_args[i]#*=}" ;;
     --ateapi-client-auth)
       if (( i + 1 >= ${#prescan_args[@]} )); then
@@ -832,9 +845,6 @@ for ((i = 0; i < ${#prescan_args[@]}; i++)); do
       ;;
     --benchmark-sandbox-class=*)
       BENCHMARK_SANDBOX_CLASS="${prescan_args[i]#*=}"
-      ;;
-    --setup-csi)
-      SETUP_CSI=true
       ;;
   esac
 done
@@ -891,13 +901,11 @@ while [[ "$#" -gt 0 ]]; do
       ;;
 
     --deploy-ate-system) deploy_ate_system ;;
+    --setup-csi=*) ;;
+    --no-setup-csi) ;;
     --setup-csi)
-      if [[ "${ATE_INSTALL_KIND:-false}" == "true" ]]; then
-        ensure_crds
-        setup_csi
-      else
-        echo "Warning: CSI setup is only supported for Kind local installations. Skipping."
-      fi
+      ensure_crds
+      setup_csi
       ;;
     --delete-ate-system) delete_ate_system ;;
     --delete-all) delete_all ;;

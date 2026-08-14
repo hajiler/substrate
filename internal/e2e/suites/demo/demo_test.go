@@ -997,7 +997,8 @@ func createActorTemplate(ctx context.Context, t *testing.T, clients *e2e.Clients
 func createActorTemplateWithExternalVolume(ctx context.Context, t *testing.T, clients *e2e.Clients, nsObj *e2e.Namespace, onCommit, onPause v1alpha1.SnapshotScope, fromData v1alpha1.ResumeSource) (*v1alpha1.ActorTemplate, error) {
 	var scName string
 	switch {
-	// TODO: add support for other storage classes in e2e environment (e.g. csi-nfs-sc)
+	case hasStorageClass(ctx, clients, "csi-nfs-sc"):
+		scName = "csi-nfs-sc"
 	case hasStorageClass(ctx, clients, "csi-hostpath-sc"):
 		scName = "csi-hostpath-sc"
 	default:
