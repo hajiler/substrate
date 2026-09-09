@@ -183,11 +183,13 @@ func appendExternalVolumes(workloadSpec *ateletpb.WorkloadSpec, template *ateapi
 			var volType string
 			var volCtx map[string]string
 			var publishCtx map[string]string
+			var accessMode ateletpb.VolumeAccessMode
 			for _, dbVol := range actor.GetStatus().GetActorVolumes() {
 				if dbVol.GetVolumeName() == vol.GetName() {
 					storageVolID = dbVol.GetStorageVolumeId()
 					volType = dbVol.GetVolumeType()
 					volCtx = dbVol.GetVolumeContext()
+					accessMode = accessModeToAtelet(dbVol.GetAccessMode())
 					if node != "" && dbVol.GetPublishContextNode() == node {
 						publishCtx = dbVol.GetPublishContext()
 					}
@@ -205,6 +207,7 @@ func appendExternalVolumes(workloadSpec *ateletpb.WorkloadSpec, template *ateapi
 						VolumeType:      volType,
 						VolumeContext:   volCtx,
 						PublishContext:  publishCtx,
+						AccessMode:      accessMode,
 					},
 				},
 			})

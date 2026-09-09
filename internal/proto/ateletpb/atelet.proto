@@ -184,6 +184,19 @@ message ExternalVolumeSource {
   // implement attachment, and unset on the terminate path, where only an
   // unmount is needed.
   map<string, string> publish_context = 4;
+
+  // access_mode is the mode the volume was provisioned with. The node plugin
+  // must request the same capability, and READ_ONLY_MANY also makes the
+  // container's bind mount read-only.
+  VolumeAccessMode access_mode = 5;
+}
+
+// VolumeAccessMode mirrors ateapipb.VolumeAccessMode.
+enum VolumeAccessMode {
+  VOLUME_ACCESS_MODE_UNSPECIFIED = 0;
+  VOLUME_ACCESS_MODE_READ_WRITE_ONCE = 1;
+  VOLUME_ACCESS_MODE_READ_ONLY_MANY = 2;
+  VOLUME_ACCESS_MODE_READ_WRITE_MANY = 3;
 }
 
 message ImageVolumeSource {

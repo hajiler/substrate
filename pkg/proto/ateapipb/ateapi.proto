@@ -351,6 +351,18 @@ message ExternalVolume {
   // +k8s:optional
   // +k8s:maxLength=253
   string publish_context_node = 7;
+
+  // access_mode is the mode the volume was provisioned with. It is recorded
+  // here so that attach and mount keep asking the driver for the same
+  // capability even if the template's access_mode later changes: a volume
+  // cannot be re-provisioned under a new mode.
+  //
+  // +k8s:optional
+  // +k8s:minimum=1
+  // +k8s:maximum=3 # keep this in sync with the VolumeAccessMode enum
+  // +k8s:update=NoModify
+  // +k8s:update=NoUnset # set-once at provisioning, like volume_name above
+  VolumeAccessMode access_mode = 8;
 }
 
 message Actor {
@@ -1109,6 +1121,27 @@ message ImageVolumeSource {
 // across resumes and participates in snapshots.
 message DurableDirVolumeSource {}
 
+// VolumeAccessMode is how an external volume may be mounted, mirroring the
+// Kubernetes PersistentVolume access modes. The driver must support the mode
+// asked of it; a volume is provisioned, attached and mounted with the same
+// one throughout. Adding a value here means raising the maximum on every
+// access_mode field.
+//
+// Substrate provisions a volume per actor, so READ_WRITE_MANY only changes
+// what capability is requested from the driver. It does not yet let two
+// actors share a volume.
+enum VolumeAccessMode {
+  // Unset; treated as VOLUME_ACCESS_MODE_READ_WRITE_ONCE.
+  VOLUME_ACCESS_MODE_UNSPECIFIED = 0;
+  // Read-write by a single node.
+  VOLUME_ACCESS_MODE_READ_WRITE_ONCE = 1;
+  // Read-only by many nodes. The volume is also bind-mounted read-only into
+  // the container.
+  VOLUME_ACCESS_MODE_READ_ONLY_MANY = 2;
+  // Read-write by many nodes.
+  VOLUME_ACCESS_MODE_READ_WRITE_MANY = 3;
+}
+
 // ExternalVolumeTemplate provisions an external volume per actor; the volume
 // lives only as long as the actor. Not supported with SANDBOX_CLASS_MICROVM.
 message ExternalVolumeTemplate {
@@ -1125,6 +1158,14 @@ message ExternalVolumeTemplate {
   // +k8s:required
   // +k8s:format=k8s-long-name
   string storage_class_name = 2;
+
+  // access_mode is how the volume may be mounted. Defaults to
+  // VOLUME_ACCESS_MODE_READ_WRITE_ONCE.
+  //
+  // +k8s:optional
+  // +k8s:minimum=1
+  // +k8s:maximum=3 # keep this in sync with the VolumeAccessMode enum
+  VolumeAccessMode access_mode = 3;
 }
 
 // SystemInfoVolumeSource is a read-only volume of substrate-generated

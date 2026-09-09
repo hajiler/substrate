@@ -34,14 +34,15 @@ type mockCSIDriver struct {
 	csi.UnimplementedControllerServer
 	csi.UnimplementedNodeServer
 
-	createVolumeFunc              func(context.Context, *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error)
-	deleteVolumeFunc              func(context.Context, *csi.DeleteVolumeRequest) (*csi.DeleteVolumeResponse, error)
-	controllerPublishVolumeFunc   func(context.Context, *csi.ControllerPublishVolumeRequest) (*csi.ControllerPublishVolumeResponse, error)
-	controllerUnpublishVolumeFunc func(context.Context, *csi.ControllerUnpublishVolumeRequest) (*csi.ControllerUnpublishVolumeResponse, error)
-	nodeStageVolumeFunc           func(context.Context, *csi.NodeStageVolumeRequest) (*csi.NodeStageVolumeResponse, error)
-	nodeUnstageVolumeFunc         func(context.Context, *csi.NodeUnstageVolumeRequest) (*csi.NodeUnstageVolumeResponse, error)
-	nodePublishVolumeFunc         func(context.Context, *csi.NodePublishVolumeRequest) (*csi.NodePublishVolumeResponse, error)
-	nodeUnpublishVolumeFunc       func(context.Context, *csi.NodeUnpublishVolumeRequest) (*csi.NodeUnpublishVolumeResponse, error)
+	createVolumeFunc               func(context.Context, *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error)
+	deleteVolumeFunc               func(context.Context, *csi.DeleteVolumeRequest) (*csi.DeleteVolumeResponse, error)
+	validateVolumeCapabilitiesFunc func(context.Context, *csi.ValidateVolumeCapabilitiesRequest) (*csi.ValidateVolumeCapabilitiesResponse, error)
+	controllerPublishVolumeFunc    func(context.Context, *csi.ControllerPublishVolumeRequest) (*csi.ControllerPublishVolumeResponse, error)
+	controllerUnpublishVolumeFunc  func(context.Context, *csi.ControllerUnpublishVolumeRequest) (*csi.ControllerUnpublishVolumeResponse, error)
+	nodeStageVolumeFunc            func(context.Context, *csi.NodeStageVolumeRequest) (*csi.NodeStageVolumeResponse, error)
+	nodeUnstageVolumeFunc          func(context.Context, *csi.NodeUnstageVolumeRequest) (*csi.NodeUnstageVolumeResponse, error)
+	nodePublishVolumeFunc          func(context.Context, *csi.NodePublishVolumeRequest) (*csi.NodePublishVolumeResponse, error)
+	nodeUnpublishVolumeFunc        func(context.Context, *csi.NodeUnpublishVolumeRequest) (*csi.NodeUnpublishVolumeResponse, error)
 
 	getPluginCapabilitiesFunc func(context.Context, *csi.GetPluginCapabilitiesRequest) (*csi.GetPluginCapabilitiesResponse, error)
 	probeFunc                 func(context.Context, *csi.ProbeRequest) (*csi.ProbeResponse, error)
@@ -95,6 +96,21 @@ func (m *mockCSIDriver) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeR
 		return m.deleteVolumeFunc(ctx, req)
 	}
 	return &csi.DeleteVolumeResponse{}, nil
+}
+
+// ValidateVolumeCapabilities confirms whatever it is asked by default, as the
+// hostpath reference driver does. Overriding validateVolumeCapabilitiesFunc is
+// the only way to reach the plugin's rejection and Unimplemented paths.
+func (m *mockCSIDriver) ValidateVolumeCapabilities(ctx context.Context, req *csi.ValidateVolumeCapabilitiesRequest) (*csi.ValidateVolumeCapabilitiesResponse, error) {
+	if m.validateVolumeCapabilitiesFunc != nil {
+		return m.validateVolumeCapabilitiesFunc(ctx, req)
+	}
+	return &csi.ValidateVolumeCapabilitiesResponse{
+		Confirmed: &csi.ValidateVolumeCapabilitiesResponse_Confirmed{
+			VolumeContext:      req.GetVolumeContext(),
+			VolumeCapabilities: req.GetVolumeCapabilities(),
+		},
+	}, nil
 }
 
 func (m *mockCSIDriver) ControllerPublishVolume(ctx context.Context, req *csi.ControllerPublishVolumeRequest) (*csi.ControllerPublishVolumeResponse, error) {
@@ -196,6 +212,158 @@ func TestPlugin_CreateVolume(t *testing.T) {
 
 	if resp.VolumeID != "test-vol" {
 		t.Errorf("expected volume ID %q, got %q", "test-vol", resp.VolumeID)
+	}
+}
+
+// TestPlugin_AccessModeCapabilities pins the access mode a volume is requested
+// with onto every RPC that carries a capability. A driver that provisions a
+// volume under one mode and is asked to publish it under another is entitled
+// to reject the publish, so create, attach, stage and publish must agree.
+func TestPlugin_AccessModeCapabilities(t *testing.T) {
+	for _, tt := range []struct {
+		name         string
+		mode         volume.AccessMode
+		wantCSIMode  csi.VolumeCapability_AccessMode_Mode
+		wantReadOnly bool
+	}{
+		{
+			name:        "unset defaults to read write once",
+			mode:        "",
+			wantCSIMode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+		},
+		{
+			name:        "read write once",
+			mode:        volume.AccessModeReadWriteOnce,
+			wantCSIMode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+		},
+		{
+			name:         "read only many",
+			mode:         volume.AccessModeReadOnlyMany,
+			wantCSIMode:  csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY,
+			wantReadOnly: true,
+		},
+		{
+			name:        "read write many",
+			mode:        volume.AccessModeReadWriteMany,
+			wantCSIMode: csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			driver := &mockCSIDriver{}
+			var createReq *csi.CreateVolumeRequest
+			var attachReq *csi.ControllerPublishVolumeRequest
+			var stageReq *csi.NodeStageVolumeRequest
+			var publishReq *csi.NodePublishVolumeRequest
+			driver.createVolumeFunc = func(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
+				createReq = req
+				return &csi.CreateVolumeResponse{Volume: &csi.Volume{VolumeId: req.GetName()}}, nil
+			}
+			driver.controllerPublishVolumeFunc = func(ctx context.Context, req *csi.ControllerPublishVolumeRequest) (*csi.ControllerPublishVolumeResponse, error) {
+				attachReq = req
+				return &csi.ControllerPublishVolumeResponse{}, nil
+			}
+			driver.nodeStageVolumeFunc = func(ctx context.Context, req *csi.NodeStageVolumeRequest) (*csi.NodeStageVolumeResponse, error) {
+				stageReq = req
+				return &csi.NodeStageVolumeResponse{}, nil
+			}
+			driver.nodePublishVolumeFunc = func(ctx context.Context, req *csi.NodePublishVolumeRequest) (*csi.NodePublishVolumeResponse, error) {
+				publishReq = req
+				return &csi.NodePublishVolumeResponse{}, nil
+			}
+
+			endpoint, cleanup := startMockCSIDriver(t, driver)
+			defer cleanup()
+
+			client, err := NewCSIClient(endpoint, nil)
+			if err != nil {
+				t.Fatalf("failed to create CSI client: %v", err)
+			}
+			defer client.Close()
+
+			plugin := NewPlugin(client)
+			plugin.stagingDirPrefix = filepath.Join(t.TempDir(), "staging")
+
+			ctx := context.Background()
+			if _, err := plugin.CreateVolume(ctx, volume.CreateVolumeRequest{Name: "test-vol", Capacity: "1Gi", AccessMode: tt.mode}); err != nil {
+				t.Fatalf("CreateVolume failed: %v", err)
+			}
+			if _, err := plugin.AttachVolume(ctx, volume.AttachVolumeRequest{VolumeID: "test-vol", Node: "node-1", AccessMode: tt.mode}); err != nil {
+				t.Fatalf("AttachVolume failed: %v", err)
+			}
+			if err := plugin.MountVolume(ctx, volume.MountVolumeRequest{VolumeID: "test-vol", TargetPath: filepath.Join(t.TempDir(), "target"), AccessMode: tt.mode}); err != nil {
+				t.Fatalf("MountVolume failed: %v", err)
+			}
+
+			for _, got := range []struct {
+				rpc string
+				cap *csi.VolumeCapability
+			}{
+				{"CreateVolume", createReq.GetVolumeCapabilities()[0]},
+				{"ControllerPublishVolume", attachReq.GetVolumeCapability()},
+				{"NodeStageVolume", stageReq.GetVolumeCapability()},
+				{"NodePublishVolume", publishReq.GetVolumeCapability()},
+			} {
+				if mode := got.cap.GetAccessMode().GetMode(); mode != tt.wantCSIMode {
+					t.Errorf("%s access mode = %v, want %v", got.rpc, mode, tt.wantCSIMode)
+				}
+				if got.cap.GetMount() == nil {
+					t.Errorf("%s did not request a mount volume capability", got.rpc)
+				}
+			}
+			if attachReq.GetReadonly() != tt.wantReadOnly {
+				t.Errorf("ControllerPublishVolume readonly = %v, want %v", attachReq.GetReadonly(), tt.wantReadOnly)
+			}
+			if publishReq.GetReadonly() != tt.wantReadOnly {
+				t.Errorf("NodePublishVolume readonly = %v, want %v", publishReq.GetReadonly(), tt.wantReadOnly)
+			}
+		})
+	}
+}
+
+// TestPlugin_CreateVolume_ConfirmsCapability covers the two answers a driver
+// can give to ValidateVolumeCapabilities that CreateVolume has to act on.
+func TestPlugin_CreateVolume_ConfirmsCapability(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		validate func(context.Context, *csi.ValidateVolumeCapabilitiesRequest) (*csi.ValidateVolumeCapabilitiesResponse, error)
+		wantCode codes.Code
+	}{
+		{
+			name: "unconfirmed mode is rejected",
+			validate: func(ctx context.Context, req *csi.ValidateVolumeCapabilitiesRequest) (*csi.ValidateVolumeCapabilitiesResponse, error) {
+				return &csi.ValidateVolumeCapabilitiesResponse{Message: "multi node writer is not supported"}, nil
+			},
+			wantCode: codes.FailedPrecondition,
+		},
+		{
+			name: "unimplemented validation is tolerated",
+			validate: func(ctx context.Context, req *csi.ValidateVolumeCapabilitiesRequest) (*csi.ValidateVolumeCapabilitiesResponse, error) {
+				return nil, status.Error(codes.Unimplemented, "unimplemented")
+			},
+			wantCode: codes.OK,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			driver := &mockCSIDriver{validateVolumeCapabilitiesFunc: tt.validate}
+			endpoint, cleanup := startMockCSIDriver(t, driver)
+			defer cleanup()
+
+			client, err := NewCSIClient(endpoint, nil)
+			if err != nil {
+				t.Fatalf("failed to create CSI client: %v", err)
+			}
+			defer client.Close()
+
+			plugin := NewPlugin(client)
+			_, err = plugin.CreateVolume(context.Background(), volume.CreateVolumeRequest{
+				Name:       "test-vol",
+				Capacity:   "1Gi",
+				AccessMode: volume.AccessModeReadWriteMany,
+			})
+			if got := status.Code(err); got != tt.wantCode {
+				t.Fatalf("CreateVolume error code = %v (%v), want %v", got, err, tt.wantCode)
+			}
+		})
 	}
 }
 

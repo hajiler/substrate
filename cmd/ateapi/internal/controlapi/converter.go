@@ -16,6 +16,7 @@ package controlapi
 
 import (
 	"github.com/agent-substrate/substrate/internal/proto/ateletpb"
+	"github.com/agent-substrate/substrate/internal/volume"
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 )
@@ -46,5 +47,39 @@ func sandboxClassString(in ateapipb.SandboxClass) string {
 		return string(atev1alpha1.SandboxClassMicroVM)
 	default:
 		return ""
+	}
+}
+
+// effectiveAccessMode normalizes a volume access mode: UNSPECIFIED means
+// READ_WRITE_ONCE, so that a volume provisioned before the field existed keeps
+// the mode it was created under.
+func effectiveAccessMode(in ateapipb.VolumeAccessMode) ateapipb.VolumeAccessMode {
+	if in == ateapipb.VolumeAccessMode_VOLUME_ACCESS_MODE_UNSPECIFIED {
+		return ateapipb.VolumeAccessMode_VOLUME_ACCESS_MODE_READ_WRITE_ONCE
+	}
+	return in
+}
+
+// accessModeToPlugin renders the proto enum in the volume plugin's form.
+func accessModeToPlugin(in ateapipb.VolumeAccessMode) volume.AccessMode {
+	switch effectiveAccessMode(in) {
+	case ateapipb.VolumeAccessMode_VOLUME_ACCESS_MODE_READ_ONLY_MANY:
+		return volume.AccessModeReadOnlyMany
+	case ateapipb.VolumeAccessMode_VOLUME_ACCESS_MODE_READ_WRITE_MANY:
+		return volume.AccessModeReadWriteMany
+	default:
+		return volume.AccessModeReadWriteOnce
+	}
+}
+
+// accessModeToAtelet maps the access mode onto atelet's wire enum.
+func accessModeToAtelet(in ateapipb.VolumeAccessMode) ateletpb.VolumeAccessMode {
+	switch effectiveAccessMode(in) {
+	case ateapipb.VolumeAccessMode_VOLUME_ACCESS_MODE_READ_ONLY_MANY:
+		return ateletpb.VolumeAccessMode_VOLUME_ACCESS_MODE_READ_ONLY_MANY
+	case ateapipb.VolumeAccessMode_VOLUME_ACCESS_MODE_READ_WRITE_MANY:
+		return ateletpb.VolumeAccessMode_VOLUME_ACCESS_MODE_READ_WRITE_MANY
+	default:
+		return ateletpb.VolumeAccessMode_VOLUME_ACCESS_MODE_READ_WRITE_ONCE
 	}
 }

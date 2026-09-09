@@ -77,11 +77,39 @@ volumes:
   externalVolumeTemplate:
     capacity: 10Gi
     storageClassName: standard-rwx
+    accessMode: VOLUME_ACCESS_MODE_READ_WRITE_ONCE
 ```
 
 * `name`: Unique DNS-label-compliant volume name.
 * `externalVolumeTemplate.capacity`: Quantity string representing the requested volume size (e.g. `1Gi`, `50Gi`).
 * `externalVolumeTemplate.storageClassName`: Name of a Kubernetes `StorageClass` present in the cluster whose `provisioner` matches a registered `CSIDriverConfig`.
+* `externalVolumeTemplate.accessMode`: How the volume may be mounted, mirroring the Kubernetes `PersistentVolume` access modes. Defaults to `VOLUME_ACCESS_MODE_READ_WRITE_ONCE`.
+
+| `accessMode` | CSI access mode | Mount |
+| --- | --- | --- |
+| `VOLUME_ACCESS_MODE_READ_WRITE_ONCE` (default) | `SINGLE_NODE_WRITER` | read-write |
+| `VOLUME_ACCESS_MODE_READ_ONLY_MANY` | `MULTI_NODE_READER_ONLY` | read-only |
+| `VOLUME_ACCESS_MODE_READ_WRITE_MANY` | `MULTI_NODE_MULTI_WRITER` | read-write |
+
+The access mode is recorded on the volume when it is provisioned, and the same
+mode is used for every later attach and mount. Editing the template afterwards
+does not change an existing actor's volume.
+
+Substrate confirms the mode with the driver's `ValidateVolumeCapabilities` right
+after provisioning, so a driver that cannot serve the requested mode fails the
+actor's first resume rather than a mount on some worker node later. A driver
+that does not implement that optional RPC is taken at its word.
+
+> [!NOTE]
+> Substrate provisions one volume per actor
+> (`substrate-<actorUID>-<volumeName>`), so `VOLUME_ACCESS_MODE_READ_WRITE_MANY`
+> only changes the capability requested from the driver — it does not let two
+> actors share a volume. Referencing a pre-existing volume is a separate feature.
+
+> [!NOTE]
+> `VOLUME_ACCESS_MODE_READ_ONLY_MANY` is enforced at the CSI mount and at the
+> container bind mount. On micro-VM sandboxes the virtio-fs share itself stays
+> read-write.
 
 #### `containers[].volumeMounts[]`
 
@@ -187,4 +215,5 @@ volumes:
   externalVolumeTemplate:
     capacity: 5Gi
     storageClassName: csi-nfs-sc
+    accessMode: VOLUME_ACCESS_MODE_READ_WRITE_ONCE
 ```

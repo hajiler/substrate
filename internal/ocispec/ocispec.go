@@ -170,6 +170,11 @@ func Build(o Options) *specs.Spec {
 			srcPath = ateompath.DurableDirVolumeMountPoint(o.ActorUID, vm.GetName())
 		case *ateletpb.Volume_External:
 			srcPath = ateompath.VolumeHostPath(o.ActorUID, vm.GetName())
+			// A read-only volume is already mounted read-only by the CSI
+			// driver; binding it rw would only fail later, at write time.
+			if volumesByName[vm.GetName()].GetExternal().GetAccessMode() == ateletpb.VolumeAccessMode_VOLUME_ACCESS_MODE_READ_ONLY_MANY {
+				options = []string{"bind", "ro"}
+			}
 		case *ateletpb.Volume_SystemInfo:
 			srcPath = ateompath.SystemInfoVolumeRoot(o.ActorUID, vm.GetName())
 			options = []string{"bind", "ro"}

@@ -189,6 +189,7 @@ func (w *ActorWorkflow) ensureAteletTerminated(ctx context.Context, actorRef res
 							StorageVolumeId: vol.GetStorageVolumeId(),
 							VolumeType:      vol.GetVolumeType(),
 							VolumeContext:   vol.GetVolumeContext(),
+							AccessMode:      accessModeToAtelet(vol.GetAccessMode()),
 						},
 					},
 				})

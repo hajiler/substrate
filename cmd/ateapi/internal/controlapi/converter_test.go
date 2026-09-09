@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/agent-substrate/substrate/internal/proto/ateletpb"
+	"github.com/agent-substrate/substrate/internal/volume"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 )
 
@@ -88,5 +89,53 @@ func TestSandboxClassString(t *testing.T) {
 		if got := sandboxClassString(tt.in); got != tt.expected {
 			t.Errorf("sandboxClassString(%v) = %q, want %q", tt.in, got, tt.expected)
 		}
+	}
+}
+
+// TestAccessModeConversions covers both renderings of the volume access mode.
+// An unspecified mode has to become ReadWriteOnce everywhere: a volume
+// provisioned before the field existed must keep the mode the driver created
+// it under, or a later publish is entitled to fail.
+func TestAccessModeConversions(t *testing.T) {
+	tests := []struct {
+		name       string
+		in         ateapipb.VolumeAccessMode
+		wantPlugin volume.AccessMode
+		wantAtelet ateletpb.VolumeAccessMode
+	}{
+		{
+			name:       "Unspecified defaults to read write once",
+			in:         ateapipb.VolumeAccessMode_VOLUME_ACCESS_MODE_UNSPECIFIED,
+			wantPlugin: volume.AccessModeReadWriteOnce,
+			wantAtelet: ateletpb.VolumeAccessMode_VOLUME_ACCESS_MODE_READ_WRITE_ONCE,
+		},
+		{
+			name:       "Read write once",
+			in:         ateapipb.VolumeAccessMode_VOLUME_ACCESS_MODE_READ_WRITE_ONCE,
+			wantPlugin: volume.AccessModeReadWriteOnce,
+			wantAtelet: ateletpb.VolumeAccessMode_VOLUME_ACCESS_MODE_READ_WRITE_ONCE,
+		},
+		{
+			name:       "Read only many",
+			in:         ateapipb.VolumeAccessMode_VOLUME_ACCESS_MODE_READ_ONLY_MANY,
+			wantPlugin: volume.AccessModeReadOnlyMany,
+			wantAtelet: ateletpb.VolumeAccessMode_VOLUME_ACCESS_MODE_READ_ONLY_MANY,
+		},
+		{
+			name:       "Read write many",
+			in:         ateapipb.VolumeAccessMode_VOLUME_ACCESS_MODE_READ_WRITE_MANY,
+			wantPlugin: volume.AccessModeReadWriteMany,
+			wantAtelet: ateletpb.VolumeAccessMode_VOLUME_ACCESS_MODE_READ_WRITE_MANY,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := accessModeToPlugin(tt.in); got != tt.wantPlugin {
+				t.Errorf("accessModeToPlugin(%v) = %q, want %q", tt.in, got, tt.wantPlugin)
+			}
+			if got := accessModeToAtelet(tt.in); got != tt.wantAtelet {
+				t.Errorf("accessModeToAtelet(%v) = %v, want %v", tt.in, got, tt.wantAtelet)
+			}
+		})
 	}
 }

@@ -86,12 +86,13 @@ func (p *Plugin) CreateVolume(ctx context.Context, req volume.CreateVolumeReques
 	}
 	capBytes := qty.Value()
 
+	capability := volumeCapability(req.AccessMode)
 	csiReq := &csi.CreateVolumeRequest{
 		Name: req.Name,
 		CapacityRange: &csi.CapacityRange{
 			RequiredBytes: capBytes,
 		},
-		VolumeCapabilities: getStandardCapabilities(),
+		VolumeCapabilities: []*csi.VolumeCapability{capability},
 		Parameters:         req.Parameters,
 	}
 
@@ -104,10 +105,40 @@ func (p *Plugin) CreateVolume(ctx context.Context, req volume.CreateVolumeReques
 		return volume.CreateVolumeResponse{}, fmt.Errorf("CSI CreateVolume response returned nil volume")
 	}
 
+	if err := p.confirmCapability(ctx, resp.GetVolume(), capability, req.AccessMode); err != nil {
+		return volume.CreateVolumeResponse{}, err
+	}
+
 	return volume.CreateVolumeResponse{
 		VolumeID:      resp.GetVolume().GetVolumeId(),
 		VolumeContext: resp.GetVolume().GetVolumeContext(),
 	}, nil
+}
+
+// confirmCapability checks the driver agrees the volume it just provisioned
+// can serve the requested access mode. CreateVolume is free to ignore
+// capabilities it does not understand, so without this an unsupported mode
+// would only surface much later, as a mount failure on a worker node.
+//
+// A driver that does not implement ValidateVolumeCapabilities is taken at its
+// word: the RPC is optional in the CSI spec.
+func (p *Plugin) confirmCapability(ctx context.Context, vol *csi.Volume, capability *csi.VolumeCapability, mode volume.AccessMode) error {
+	resp, err := p.client.ValidateVolumeCapabilities(ctx, &csi.ValidateVolumeCapabilitiesRequest{
+		VolumeId:           vol.GetVolumeId(),
+		VolumeContext:      vol.GetVolumeContext(),
+		VolumeCapabilities: []*csi.VolumeCapability{capability},
+	})
+	if err != nil {
+		if status.Code(err) == codes.Unimplemented {
+			slog.WarnContext(ctx, "CSI ValidateVolumeCapabilities is unimplemented by driver; assuming the access mode is supported", slog.String("volume_id", vol.GetVolumeId()), slog.String("access_mode", string(mode)))
+			return nil
+		}
+		return fmt.Errorf("CSI ValidateVolumeCapabilities failed: %w", err)
+	}
+	if resp.GetConfirmed() == nil {
+		return status.Errorf(codes.FailedPrecondition, "driver does not support access mode %q for volume %q: %s", mode, vol.GetVolumeId(), resp.GetMessage())
+	}
+	return nil
 }
 
 // DeleteVolume maps to CSI Controller DeleteVolume.
@@ -132,8 +163,8 @@ func (p *Plugin) AttachVolume(ctx context.Context, req volume.AttachVolumeReques
 	csiReq := &csi.ControllerPublishVolumeRequest{
 		VolumeId:         req.VolumeID,
 		NodeId:           req.Node,
-		VolumeCapability: getStandardCapabilities()[0], // Use primary capability
-		Readonly:         false,
+		VolumeCapability: volumeCapability(req.AccessMode),
+		Readonly:         req.AccessMode.ReadOnly(),
 	}
 
 	resp, err := p.client.ControllerPublishVolume(ctx, csiReq)
@@ -180,7 +211,7 @@ func (p *Plugin) MountVolume(ctx context.Context, req volume.MountVolumeRequest)
 	stageReq := &csi.NodeStageVolumeRequest{
 		VolumeId:          req.VolumeID,
 		StagingTargetPath: stagingPath,
-		VolumeCapability:  getStandardCapabilities()[0], // Use primary capability
+		VolumeCapability:  volumeCapability(req.AccessMode),
 		VolumeContext:     req.VolumeContext,
 		PublishContext:    req.PublishContext,
 	}
@@ -199,8 +230,8 @@ func (p *Plugin) MountVolume(ctx context.Context, req volume.MountVolumeRequest)
 	publishReq := &csi.NodePublishVolumeRequest{
 		VolumeId:         req.VolumeID,
 		TargetPath:       req.TargetPath,
-		VolumeCapability: getStandardCapabilities()[0],
-		Readonly:         false,
+		VolumeCapability: volumeCapability(req.AccessMode),
+		Readonly:         req.AccessMode.ReadOnly(),
 		VolumeContext:    req.VolumeContext,
 		PublishContext:   req.PublishContext,
 	}
@@ -253,18 +284,25 @@ func (p *Plugin) UnmountVolume(ctx context.Context, volumeID string, targetPath 
 	return nil
 }
 
-// Helper to provide standard capabilities for general volume operations.
-// TODO: Support and expose different volume access modes (e.g. ReadWriteMany, ReadOnlyMany)
-// instead of hardcoding SingleNodeWriter.
-func getStandardCapabilities() []*csi.VolumeCapability {
-	return []*csi.VolumeCapability{
-		{
-			AccessMode: &csi.VolumeCapability_AccessMode{
-				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
-			},
-			AccessType: &csi.VolumeCapability_Mount{
-				Mount: &csi.VolumeCapability_MountVolume{},
-			},
+// volumeCapability builds the mount capability to request from the driver for
+// mode. A volume is provisioned, attached and mounted with the same
+// capability: strict drivers reject a publish whose access mode differs from
+// the one the volume was created under.
+//
+// An unrecognized mode, including the zero value, falls back to
+// ReadWriteOnce, which is what the API's unspecified access mode means.
+func volumeCapability(mode volume.AccessMode) *csi.VolumeCapability {
+	csiMode := csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER
+	switch mode {
+	case volume.AccessModeReadOnlyMany:
+		csiMode = csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY
+	case volume.AccessModeReadWriteMany:
+		csiMode = csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER
+	}
+	return &csi.VolumeCapability{
+		AccessMode: &csi.VolumeCapability_AccessMode{Mode: csiMode},
+		AccessType: &csi.VolumeCapability_Mount{
+			Mount: &csi.VolumeCapability_MountVolume{},
 		},
 	}
 }

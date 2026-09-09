@@ -69,6 +69,7 @@ func TestInitialActorVolumes_PendingState(t *testing.T) {
 				Name: "data-vol-2",
 				ExternalVolumeTemplate: &ateapipb.ExternalVolumeTemplate{
 					StorageClassName: "fast",
+					AccessMode:       ateapipb.VolumeAccessMode_VOLUME_ACCESS_MODE_READ_ONLY_MANY,
 				},
 			},
 		},
@@ -79,11 +80,15 @@ func TestInitialActorVolumes_PendingState(t *testing.T) {
 			VolumeName: "data-vol-1",
 			VolumeType: "mock-standard",
 			Status:     ateapipb.ExternalVolume_STATUS_PENDING,
+			// A template that asks for no mode gets the default recorded, so
+			// the volume's mode is pinned from the start.
+			AccessMode: ateapipb.VolumeAccessMode_VOLUME_ACCESS_MODE_READ_WRITE_ONCE,
 		},
 		{
 			VolumeName: "data-vol-2",
 			VolumeType: "mock-fast",
 			Status:     ateapipb.ExternalVolume_STATUS_PENDING,
+			AccessMode: ateapipb.VolumeAccessMode_VOLUME_ACCESS_MODE_READ_ONLY_MANY,
 		},
 	}
 
@@ -160,6 +165,7 @@ func TestCreateActorVolumes(t *testing.T) {
 					VolumeName: "vol1",
 					VolumeType: "mock-standard",
 					Status:     ateapipb.ExternalVolume_STATUS_PENDING,
+					AccessMode: ateapipb.VolumeAccessMode_VOLUME_ACCESS_MODE_READ_ONLY_MANY,
 				},
 				{
 					VolumeName: "vol2",
@@ -177,6 +183,10 @@ func TestCreateActorVolumes(t *testing.T) {
 					StorageVolumeId: "mock-vol-substrate-actor-uid-123-vol1",
 					VolumeType:      "mock-standard",
 					Status:          ateapipb.ExternalVolume_STATUS_CREATED,
+					// Carried over from the pending volume: createActorVolumes
+					// rebuilds the record field by field, so the pinned mode
+					// has to be copied across explicitly.
+					AccessMode: ateapipb.VolumeAccessMode_VOLUME_ACCESS_MODE_READ_ONLY_MANY,
 				},
 				{
 					VolumeName: "vol2",
@@ -345,4 +355,60 @@ func (m *mockPluginRegistry) GetPlugin(ctx context.Context, name string) (volume
 		return nil, fmt.Errorf("plugin %q not found in mock registry", name)
 	}
 	return p, nil
+}
+
+// recordingVolumePlugin captures the create requests it is handed.
+type recordingVolumePlugin struct {
+	volume.VolumePluginControlPlane
+	created []volume.CreateVolumeRequest
+}
+
+func (p *recordingVolumePlugin) CreateVolume(ctx context.Context, req volume.CreateVolumeRequest) (volume.CreateVolumeResponse, error) {
+	p.created = append(p.created, req)
+	return volume.CreateVolumeResponse{VolumeID: "storage-" + req.Name}, nil
+}
+
+// TestCreateActorVolumes_RequestsRecordedAccessMode pins that provisioning
+// asks the driver for the mode recorded on the volume. Getting this wrong is
+// invisible until a mount fails on a worker node.
+func TestCreateActorVolumes_RequestsRecordedAccessMode(t *testing.T) {
+	ctx := context.Background()
+	tmpl := &ateapipb.ActorTemplate{
+		Volumes: []*ateapipb.Volume{
+			{Name: "vol", ExternalVolumeTemplate: &ateapipb.ExternalVolumeTemplate{StorageClassName: "standard"}},
+		},
+	}
+	scLister := &fakeStorageClassLister{
+		storageClasses: map[string]*storagev1.StorageClass{
+			"standard": {ObjectMeta: metav1.ObjectMeta{Name: "standard"}, Provisioner: "mock-standard"},
+		},
+	}
+
+	for _, tt := range []struct {
+		name string
+		mode ateapipb.VolumeAccessMode
+		want volume.AccessMode
+	}{
+		{name: "unspecified defaults to ReadWriteOnce", mode: ateapipb.VolumeAccessMode_VOLUME_ACCESS_MODE_UNSPECIFIED, want: volume.AccessModeReadWriteOnce},
+		{name: "read write once", mode: ateapipb.VolumeAccessMode_VOLUME_ACCESS_MODE_READ_WRITE_ONCE, want: volume.AccessModeReadWriteOnce},
+		{name: "read only many", mode: ateapipb.VolumeAccessMode_VOLUME_ACCESS_MODE_READ_ONLY_MANY, want: volume.AccessModeReadOnlyMany},
+		{name: "read write many", mode: ateapipb.VolumeAccessMode_VOLUME_ACCESS_MODE_READ_WRITE_MANY, want: volume.AccessModeReadWriteMany},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			plugin := &recordingVolumePlugin{}
+			registry := &mockPluginRegistry{plugins: map[string]volume.VolumePluginControlPlane{"mock-standard": plugin}}
+			_, err := createActorVolumes(ctx, registry, scLister, "uid", tmpl, []*ateapipb.ExternalVolume{
+				{VolumeName: "vol", VolumeType: "mock-standard", Status: ateapipb.ExternalVolume_STATUS_PENDING, AccessMode: tt.mode},
+			})
+			if err != nil {
+				t.Fatalf("createActorVolumes: %v", err)
+			}
+			if len(plugin.created) != 1 {
+				t.Fatalf("CreateVolume calls = %d, want 1", len(plugin.created))
+			}
+			if got := plugin.created[0].AccessMode; got != tt.want {
+				t.Errorf("requested access mode = %q, want %q", got, tt.want)
+			}
+		})
+	}
 }

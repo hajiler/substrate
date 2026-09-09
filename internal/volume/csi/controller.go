@@ -39,3 +39,9 @@ func (c *Client) ControllerPublishVolume(ctx context.Context, req *csi.Controlle
 func (c *Client) ControllerUnpublishVolume(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) (*csi.ControllerUnpublishVolumeResponse, error) {
 	return c.controller.ControllerUnpublishVolume(ctx, req)
 }
+
+// ValidateVolumeCapabilities asks whether the driver can serve a volume with
+// the given capabilities.
+func (c *Client) ValidateVolumeCapabilities(ctx context.Context, req *csi.ValidateVolumeCapabilitiesRequest) (*csi.ValidateVolumeCapabilitiesResponse, error) {
+	return c.controller.ValidateVolumeCapabilities(ctx, req)
+}

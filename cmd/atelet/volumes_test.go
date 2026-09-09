@@ -41,6 +41,24 @@ func (f *fakeWorkerPlugin) UnmountVolume(ctx context.Context, volumeID string, t
 
 var _ volume.VolumePluginWorkerPlane = (*fakeWorkerPlugin)(nil)
 
+func TestAccessModeFromAtelet(t *testing.T) {
+	for _, tt := range []struct {
+		in   ateletpb.VolumeAccessMode
+		want volume.AccessMode
+	}{
+		// An actor created before the field existed sends the zero value, and
+		// has to keep the mode its volume was provisioned under.
+		{ateletpb.VolumeAccessMode_VOLUME_ACCESS_MODE_UNSPECIFIED, volume.AccessModeReadWriteOnce},
+		{ateletpb.VolumeAccessMode_VOLUME_ACCESS_MODE_READ_WRITE_ONCE, volume.AccessModeReadWriteOnce},
+		{ateletpb.VolumeAccessMode_VOLUME_ACCESS_MODE_READ_ONLY_MANY, volume.AccessModeReadOnlyMany},
+		{ateletpb.VolumeAccessMode_VOLUME_ACCESS_MODE_READ_WRITE_MANY, volume.AccessModeReadWriteMany},
+	} {
+		if got := accessModeFromAtelet(tt.in); got != tt.want {
+			t.Errorf("accessModeFromAtelet(%v) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
 func TestUnmountExternalVolumes(t *testing.T) {
 	ctx := context.Background()
 	actorUID := "test-actor-123"

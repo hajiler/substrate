@@ -653,7 +653,11 @@ func (w *ActorWorkflow) ensureVolumesAttached(ctx context.Context, actorRef reso
 		if err != nil {
 			return nil, fmt.Errorf("failed to get volume plugin for %q: %w", vol.GetVolumeType(), err)
 		}
-		resp, err := plugin.AttachVolume(ctx, volume.AttachVolumeRequest{VolumeID: vol.GetStorageVolumeId(), Node: node})
+		resp, err := plugin.AttachVolume(ctx, volume.AttachVolumeRequest{
+			VolumeID:   vol.GetStorageVolumeId(),
+			Node:       node,
+			AccessMode: accessModeToPlugin(vol.GetAccessMode()),
+		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to attach volume %q to node %q: %w", vol.GetStorageVolumeId(), node, err)
 		}

@@ -34,6 +34,9 @@ var parityOptions = Options{
 		durableVolume("data"),
 		{Name: "sysinfo", Source: &ateletpb.Volume_SystemInfo{SystemInfo: &ateletpb.SystemInfoVolume{}}},
 		{Name: "csi", Source: &ateletpb.Volume_External{External: &ateletpb.ExternalVolumeSource{}}},
+		{Name: "csi-ro", Source: &ateletpb.Volume_External{External: &ateletpb.ExternalVolumeSource{
+			AccessMode: ateletpb.VolumeAccessMode_VOLUME_ACCESS_MODE_READ_ONLY_MANY,
+		}}},
 		{Name: "agent", Source: &ateletpb.Volume_Image{Image: &ateletpb.ImageVolumeSource{}}},
 	},
 	VolumeMounts: []*ateletpb.VolumeMount{
@@ -41,6 +44,7 @@ var parityOptions = Options{
 		// System-info volume mount.
 		{Name: "sysinfo", MountPath: "/run/ate"},
 		{Name: "csi", MountPath: "/mnt/csi"},
+		{Name: "csi-ro", MountPath: "/mnt/csi-ro"},
 		{Name: "agent", MountPath: "/ate"},
 	},
 }
@@ -101,6 +105,40 @@ func TestShapers_PreserveEveryVolumeMount(t *testing.T) {
 	}
 }
 
+// A ReadOnlyMany volume stays read-only through both shapers: the CSI driver
+// mounted it read-only, so a writable bind would only fail later, at write
+// time.
+func TestShapers_PreserveTheReadOnlyExternalBind(t *testing.T) {
+	for _, tc := range []struct {
+		runtime string
+		shape   func(*specs.Spec) error
+	}{{
+		runtime: "gvisor",
+		shape: func(s *specs.Spec) error {
+			ShapeGVisor(s, GVisorOptions{ActorUID: testActorUID, ContainerName: "app", Size: paritySize})
+			return nil
+		},
+	}, {
+		runtime: "microvm",
+		shape: func(s *specs.Spec) error {
+			return ShapeMicroVM(s, MicroVMOptions{ActorUID: testActorUID, ContainerID: "app"})
+		},
+	}} {
+		t.Run(tc.runtime, func(t *testing.T) {
+			spec := Build(parityOptions)
+			if err := tc.shape(spec); err != nil {
+				t.Fatalf("shaping the spec: %v", err)
+			}
+			if opts := mountFor(t, spec, "/mnt/csi-ro").Options; !slices.Contains(opts, "ro") {
+				t.Errorf("/mnt/csi-ro options = %v, want them to include ro", opts)
+			}
+			if opts := mountFor(t, spec, "/mnt/csi").Options; slices.Contains(opts, "ro") {
+				t.Errorf("/mnt/csi options = %v, want the default ReadWriteOnce volume to stay writable", opts)
+			}
+		})
+	}
+}
+
 // ShapeMicroVM rewrites bind sources to their guest share paths.
 func TestShapeMicroVM_TranslatesSourcesIntoTheShare(t *testing.T) {
 	spec := Build(parityOptions)
@@ -111,6 +149,7 @@ func TestShapeMicroVM_TranslatesSourcesIntoTheShare(t *testing.T) {
 		{"/var/data", GuestSharedDir + "/" + ShareDurable + "/data"},
 		{"/run/ate", GuestSharedDir + "/" + ShareSystemInfo + "/sysinfo"},
 		{"/mnt/csi", GuestSharedDir + "/" + ShareCSI + "/csi"},
+		{"/mnt/csi-ro", GuestSharedDir + "/" + ShareCSI + "/csi-ro"},
 		{"/ate", GuestSharedDir + "/app/" + ShareVolumes + "/agent"},
 	} {
 		if got := mountFor(t, spec, tc.dest).Source; got != tc.wantSource {

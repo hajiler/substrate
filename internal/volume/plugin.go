@@ -18,6 +18,25 @@ import (
 	"context"
 )
 
+// AccessMode is how a volume may be mounted, mirroring the Kubernetes
+// PersistentVolume access modes.
+type AccessMode string
+
+const (
+	// AccessModeReadWriteOnce allows read-write access from a single node. It
+	// is the default when no mode is requested.
+	AccessModeReadWriteOnce AccessMode = "ReadWriteOnce"
+	// AccessModeReadOnlyMany allows read-only access from many nodes.
+	AccessModeReadOnlyMany AccessMode = "ReadOnlyMany"
+	// AccessModeReadWriteMany allows read-write access from many nodes.
+	AccessModeReadWriteMany AccessMode = "ReadWriteMany"
+)
+
+// ReadOnly reports whether the mode forbids writes.
+func (m AccessMode) ReadOnly() bool {
+	return m == AccessModeReadOnlyMany
+}
+
 // CreateVolumeRequest describes a volume to provision.
 type CreateVolumeRequest struct {
 	// Name is the name to provision the volume under.
@@ -26,6 +45,9 @@ type CreateVolumeRequest struct {
 	Capacity string
 	// Parameters are the driver-specific parameters from the StorageClass.
 	Parameters map[string]string
+	// AccessMode is how the volume will be mounted. Empty means
+	// AccessModeReadWriteOnce.
+	AccessMode AccessMode
 }
 
 // CreateVolumeResponse describes a provisioned volume.
@@ -43,6 +65,9 @@ type AttachVolumeRequest struct {
 	VolumeID string
 	// Node is the node to attach the volume to.
 	Node string
+	// AccessMode is the mode the volume was provisioned with. Empty means
+	// AccessModeReadWriteOnce.
+	AccessMode AccessMode
 }
 
 // AttachVolumeResponse describes a completed attachment.
@@ -65,6 +90,9 @@ type MountVolumeRequest struct {
 	// PublishContext is the metadata returned when the volume was attached to
 	// this node. It is empty for drivers that do not implement attachment.
 	PublishContext map[string]string
+	// AccessMode is the mode the volume was provisioned with. Empty means
+	// AccessModeReadWriteOnce.
+	AccessMode AccessMode
 }
 
 // VolumePluginControlPlane abstracts storage operations performed on the control plane.

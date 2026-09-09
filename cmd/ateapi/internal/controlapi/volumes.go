@@ -50,6 +50,10 @@ func initialActorVolumes(ctx context.Context, scLister storagev1listers.StorageC
 				VolumeName: vol.GetName(),
 				VolumeType: sc.Provisioner,
 				Status:     ateapipb.ExternalVolume_STATUS_PENDING,
+				// Pinned from the template now: the volume is provisioned,
+				// attached and mounted under one access mode for its whole
+				// life, even if the template's later changes.
+				AccessMode: effectiveAccessMode(vol.GetExternalVolumeTemplate().GetAccessMode()),
 			})
 		}
 	}
@@ -115,10 +119,16 @@ func createActorVolumes(ctx context.Context, registry VolumePluginRegistry, scLi
 			return resultVolumes, status.Errorf(codes.FailedPrecondition, "failed to get volume plugin for driver %q (StorageClass %q): %v", sc.Provisioner, scName, err)
 		}
 
+		// The mode recorded on the pending volume, not the template's current
+		// one: initialActorVolumes pinned it, and a volume cannot be
+		// re-provisioned under a different mode.
+		accessMode := effectiveAccessMode(vol.GetAccessMode())
+
 		created, volErr := plugin.CreateVolume(ctx, volume.CreateVolumeRequest{
 			Name:       actVolID,
 			Capacity:   specVol.GetExternalVolumeTemplate().GetCapacity(),
 			Parameters: sc.Parameters,
+			AccessMode: accessModeToPlugin(accessMode),
 		})
 		if volErr != nil {
 			return resultVolumes, status.Errorf(codes.Internal, "failed to create volume %q: %v", specVol.GetName(), volErr)
@@ -130,6 +140,7 @@ func createActorVolumes(ctx context.Context, registry VolumePluginRegistry, scLi
 			VolumeType:      sc.Provisioner,
 			Status:          ateapipb.ExternalVolume_STATUS_CREATED,
 			VolumeContext:   created.VolumeContext,
+			AccessMode:      accessMode,
 		})
 	}
 	return resultVolumes, nil

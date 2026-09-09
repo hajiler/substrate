@@ -49,6 +49,7 @@ func (s *AteomHerder) mountExternalVolumes(ctx context.Context, actorUID string,
 			TargetPath:     hostPath,
 			VolumeContext:  ext.GetVolumeContext(),
 			PublishContext: ext.GetPublishContext(),
+			AccessMode:     accessModeFromAtelet(ext.GetAccessMode()),
 		}); err != nil {
 			return fmt.Errorf("failed to mount volume %q to %q: %w", ext.GetStorageVolumeId(), hostPath, err)
 		}
@@ -81,6 +82,19 @@ func (s *AteomHerder) unmountExternalVolumes(ctx context.Context, actorUID strin
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// accessModeFromAtelet renders the wire enum in the volume plugin's form. An
+// unset mode means ReadWriteOnce, matching the control plane's default.
+func accessModeFromAtelet(in ateletpb.VolumeAccessMode) volume.AccessMode {
+	switch in {
+	case ateletpb.VolumeAccessMode_VOLUME_ACCESS_MODE_READ_ONLY_MANY:
+		return volume.AccessModeReadOnlyMany
+	case ateletpb.VolumeAccessMode_VOLUME_ACCESS_MODE_READ_WRITE_MANY:
+		return volume.AccessModeReadWriteMany
+	default:
+		return volume.AccessModeReadWriteOnce
+	}
 }
 
 func (s *AteomHerder) getPlugin(ctx context.Context, driverName string) (volume.VolumePluginWorkerPlane, error) {
