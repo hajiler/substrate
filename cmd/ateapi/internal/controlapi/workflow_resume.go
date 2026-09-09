@@ -19,7 +19,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"slices"
 	"time"
 
 	"github.com/agent-substrate/substrate/cmd/ateapi/internal/scheduling"
@@ -31,7 +30,6 @@ import (
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -618,14 +616,8 @@ func schedulingConstraints(actor *ateapipb.Actor, tmpl *ateapipb.ActorTemplate) 
 }
 
 // ensureVolumesAttached attaches the actor's mounted external volumes to the
-// assigned worker's node and records the driver's attachment metadata, which
-// the node plugin needs to complete the mount. Attachment is idempotent, so a
-// re-entered workflow safely runs it again.
+// assigned worker's node and records the driver's attachment metadata.
 // TODO replace re-execution with a proper check on the volumes' attach state.
-//
-// It returns the actor as persisted; when no attachment metadata changed the
-// actor is returned unmodified and nothing is written, keeping the common
-// resume off the store's write path.
 func (w *ActorWorkflow) ensureVolumesAttached(ctx context.Context, actorRef resources.ActorRef, actor *ateapipb.Actor, worker *ateapipb.Worker, actorTemplate *ateapipb.ActorTemplate) (_ *ateapipb.Actor, err error) {
 	ctx, done := stepSpan(ctx, "AttachVolumes")
 	defer func() { err = done(err) }()
@@ -635,19 +627,9 @@ func (w *ActorWorkflow) ensureVolumesAttached(ctx context.Context, actorRef reso
 		return nil, fmt.Errorf("assigned worker has no node name")
 	}
 
-	// getMountedActorVolumes returns a filtered view of the actor's volumes, so
-	// the results are merged back into the full slice rather than replacing it.
-	updated := make([]*ateapipb.ExternalVolume, 0, len(actor.GetStatus().GetActorVolumes()))
-	for _, vol := range actor.GetStatus().GetActorVolumes() {
-		updated = append(updated, proto.CloneOf(vol))
-	}
-	byName := make(map[string]*ateapipb.ExternalVolume, len(updated))
-	for _, vol := range updated {
-		byName[vol.GetVolumeName()] = vol
-	}
-
 	ref := &ateapipb.ObjectRef{Atespace: actor.GetMetadata().GetAtespace(), Name: actor.GetMetadata().GetName()}
-	for _, vol := range getMountedActorVolumes(ctx, ref, actor.GetStatus().GetActorVolumes(), actorTemplate) {
+	updated := getMountedActorVolumes(ctx, ref, actor.GetStatus().GetActorVolumes(), actorTemplate)
+	for _, vol := range updated {
 		slog.InfoContext(ctx, "Attaching volume to node", slog.String("volume_id", vol.GetStorageVolumeId()), slog.String("node", node))
 		plugin, err := w.pluginRegistry.GetPlugin(ctx, vol.GetVolumeType())
 		if err != nil {
@@ -661,19 +643,7 @@ func (w *ActorWorkflow) ensureVolumesAttached(ctx context.Context, actorRef reso
 		if err != nil {
 			return nil, fmt.Errorf("failed to attach volume %q to node %q: %w", vol.GetStorageVolumeId(), node, err)
 		}
-		// The attach result is authoritative, including when it is empty: a
-		// driver that stopped handing out attachment metadata must not leave a
-		// stale map behind.
-		if target := byName[vol.GetVolumeName()]; target != nil {
-			target.PublishContext = resp.PublishContext
-			target.PublishContextNode = node
-		}
-	}
-
-	if slices.EqualFunc(actor.GetStatus().GetActorVolumes(), updated, func(a, b *ateapipb.ExternalVolume) bool {
-		return proto.Equal(a, b)
-	}) {
-		return actor, nil
+		vol.PublishContext = resp.PublishContext
 	}
 
 	storedActor, updateErr := w.store.UpdateActor(ctx, actorRef, store.PreconditionFrom(actor), func(toUpdate *ateapipb.Actor) error {

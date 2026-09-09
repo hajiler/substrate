@@ -180,9 +180,7 @@ message ExternalVolumeSource {
   map<string, string> volume_context = 3;
 
   // publish_context is the driver's attachment metadata for this node, which
-  // the node plugin needs to complete the mount. Empty for drivers that do not
-  // implement attachment, and unset on the terminate path, where only an
-  // unmount is needed.
+  // the node plugin needs to complete the mount.
   map<string, string> publish_context = 4;
 
   // access_mode is the mode the volume was provisioned with. The node plugin

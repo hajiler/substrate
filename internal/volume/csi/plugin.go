@@ -119,9 +119,6 @@ func (p *Plugin) CreateVolume(ctx context.Context, req volume.CreateVolumeReques
 // can serve the requested access mode. CreateVolume is free to ignore
 // capabilities it does not understand, so without this an unsupported mode
 // would only surface much later, as a mount failure on a worker node.
-//
-// A driver that does not implement ValidateVolumeCapabilities is taken at its
-// word: the RPC is optional in the CSI spec.
 func (p *Plugin) confirmCapability(ctx context.Context, vol *csi.Volume, capability *csi.VolumeCapability, mode volume.AccessMode) error {
 	resp, err := p.client.ValidateVolumeCapabilities(ctx, &csi.ValidateVolumeCapabilitiesRequest{
 		VolumeId:           vol.GetVolumeId(),
@@ -155,10 +152,6 @@ func (p *Plugin) DeleteVolume(ctx context.Context, volumeID string) error {
 }
 
 // AttachVolume maps to CSI Controller ControllerPublishVolume.
-//
-// The returned publish context is the driver's attachment metadata, which the
-// node plugin needs to complete the mount. Drivers without
-// PUBLISH_UNPUBLISH_VOLUME return an empty response.
 func (p *Plugin) AttachVolume(ctx context.Context, req volume.AttachVolumeRequest) (volume.AttachVolumeResponse, error) {
 	csiReq := &csi.ControllerPublishVolumeRequest{
 		VolumeId:         req.VolumeID,
@@ -288,9 +281,6 @@ func (p *Plugin) UnmountVolume(ctx context.Context, volumeID string, targetPath 
 // mode. A volume is provisioned, attached and mounted with the same
 // capability: strict drivers reject a publish whose access mode differs from
 // the one the volume was created under.
-//
-// An unrecognized mode, including the zero value, falls back to
-// ReadWriteOnce, which is what the API's unspecified access mode means.
 func volumeCapability(mode volume.AccessMode) *csi.VolumeCapability {
 	csiMode := csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER
 	switch mode {

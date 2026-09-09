@@ -163,8 +163,6 @@ func (w *ActorWorkflow) ensureAteletTerminated(ctx context.Context, actorRef res
 
 	var workloadSpec *ateletpb.WorkloadSpec
 	if actorTemplate != nil {
-		// No node: NodeUnstageVolume and NodeUnpublishVolume take no publish
-		// context, so a terminate needs no attachment metadata.
 		spec, err := workloadSpecFromActorTemplate(actorTemplate, actor, "")
 		if err != nil {
 			return err

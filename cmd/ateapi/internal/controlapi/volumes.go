@@ -124,7 +124,7 @@ func createActorVolumes(ctx context.Context, registry VolumePluginRegistry, scLi
 		// re-provisioned under a different mode.
 		accessMode := effectiveAccessMode(vol.GetAccessMode())
 
-		created, volErr := plugin.CreateVolume(ctx, volume.CreateVolumeRequest{
+		resp, volErr := plugin.CreateVolume(ctx, volume.CreateVolumeRequest{
 			Name:       actVolID,
 			Capacity:   specVol.GetExternalVolumeTemplate().GetCapacity(),
 			Parameters: sc.Parameters,
@@ -136,10 +136,10 @@ func createActorVolumes(ctx context.Context, registry VolumePluginRegistry, scLi
 
 		resultVolumes = append(resultVolumes, &ateapipb.ExternalVolume{
 			VolumeName:      volName,
-			StorageVolumeId: created.VolumeID,
+			StorageVolumeId: resp.VolumeID,
 			VolumeType:      sc.Provisioner,
 			Status:          ateapipb.ExternalVolume_STATUS_CREATED,
-			VolumeContext:   created.VolumeContext,
+			VolumeContext:   resp.VolumeContext,
 			AccessMode:      accessMode,
 		})
 	}

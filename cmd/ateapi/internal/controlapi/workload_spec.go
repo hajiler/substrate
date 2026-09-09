@@ -48,10 +48,6 @@ func toAteletResources(r *ateapipb.Resources) (*ateletpb.ResourceLimits, error) 
 
 // workloadSpecFromActorTemplate builds a WorkloadSpec from the template;
 // container env is copied verbatim.
-//
-// node is the node the spec is destined for. It gates the per-node CSI
-// attachment metadata on external volumes; callers that only need the spec's
-// shape to tear a workload down pass "".
 func workloadSpecFromActorTemplate(actorTemplate *ateapipb.ActorTemplate, actor *ateapipb.Actor, node string) (*ateletpb.WorkloadSpec, error) {
 	workloadSpec := &ateletpb.WorkloadSpec{}
 
@@ -161,11 +157,6 @@ func workloadSpecFromActorTemplate(actorTemplate *ateapipb.ActorTemplate, actor 
 
 // appendExternalVolumes maps template external volumes to resolved actor volumes and appends them to workloadSpec
 // if they are referenced in container volumeMounts.
-//
-// A volume's CSI publish context is only valid for the node it was attached
-// to, so it is forwarded only when node matches the node recorded alongside
-// it. An unmount needs no publish context, so a caller tearing a workload down
-// can pass an empty node.
 func appendExternalVolumes(workloadSpec *ateletpb.WorkloadSpec, template *ateapipb.ActorTemplate, actor *ateapipb.Actor, node string) error {
 	if template == nil {
 		return nil
@@ -190,6 +181,7 @@ func appendExternalVolumes(workloadSpec *ateletpb.WorkloadSpec, template *ateapi
 					volType = dbVol.GetVolumeType()
 					volCtx = dbVol.GetVolumeContext()
 					accessMode = accessModeToAtelet(dbVol.GetAccessMode())
+					// CSI context is only valid for the node that the volume is attached to.
 					if node != "" && dbVol.GetPublishContextNode() == node {
 						publishCtx = dbVol.GetPublishContext()
 					}
