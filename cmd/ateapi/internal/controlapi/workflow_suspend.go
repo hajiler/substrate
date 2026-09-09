@@ -231,7 +231,8 @@ func (w *ActorWorkflow) ensureAteletSuspended(ctx context.Context, actorRef reso
 	}
 	client := ateletpb.NewAteomHerderClient(ateletConn)
 
-	workloadSpec, err := workloadSpecFromActorTemplate(actorTemplate, actor)
+	// No node: a checkpoint mounts nothing, so it needs no attachment metadata.
+	workloadSpec, err := workloadSpecFromActorTemplate(actorTemplate, actor, "")
 	if err != nil {
 		return "", err
 	}

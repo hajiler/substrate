@@ -21,7 +21,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/agent-substrate/substrate/internal/volume"
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	"github.com/google/go-cmp/cmp"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -184,13 +186,16 @@ func TestPlugin_CreateVolume(t *testing.T) {
 	plugin := NewPlugin(client)
 
 	ctx := context.Background()
-	volID, _, err := plugin.CreateVolume(ctx, "test-vol", "1Gi", "standard", nil)
+	resp, err := plugin.CreateVolume(ctx, volume.CreateVolumeRequest{
+		Name:     "test-vol",
+		Capacity: "1Gi",
+	})
 	if err != nil {
 		t.Fatalf("CreateVolume failed: %v", err)
 	}
 
-	if volID != "test-vol" {
-		t.Errorf("expected volume ID %q, got %q", "test-vol", volID)
+	if resp.VolumeID != "test-vol" {
+		t.Errorf("expected volume ID %q, got %q", "test-vol", resp.VolumeID)
 	}
 }
 
@@ -228,18 +233,39 @@ func TestPlugin_AttachVolume(t *testing.T) {
 	plugin := NewPlugin(client)
 
 	ctx := context.Background()
-	err = plugin.AttachVolume(ctx, "test-vol", "node-1")
+	resp, err := plugin.AttachVolume(ctx, volume.AttachVolumeRequest{VolumeID: "test-vol", Node: "node-1"})
 	if err != nil {
 		t.Fatalf("AttachVolume failed: %v", err)
+	}
+	if len(resp.PublishContext) != 0 {
+		t.Errorf("expected no publish context from a driver that returns none, got %v", resp.PublishContext)
+	}
+
+	// A driver's publish context is the attachment metadata the node plugin
+	// needs, so it must reach the caller rather than being dropped.
+	driver.controllerPublishVolumeFunc = func(ctx context.Context, req *csi.ControllerPublishVolumeRequest) (*csi.ControllerPublishVolumeResponse, error) {
+		return &csi.ControllerPublishVolumeResponse{
+			PublishContext: map[string]string{"devicePath": "/dev/xvdba"},
+		}, nil
+	}
+	resp, err = plugin.AttachVolume(ctx, volume.AttachVolumeRequest{VolumeID: "test-vol", Node: "node-1"})
+	if err != nil {
+		t.Fatalf("AttachVolume failed: %v", err)
+	}
+	if diff := cmp.Diff(map[string]string{"devicePath": "/dev/xvdba"}, resp.PublishContext); diff != "" {
+		t.Errorf("publish context mismatch (-want +got):\n%s", diff)
 	}
 
 	// Test Unimplemented warning bypass
 	driver.controllerPublishVolumeFunc = func(ctx context.Context, req *csi.ControllerPublishVolumeRequest) (*csi.ControllerPublishVolumeResponse, error) {
 		return nil, status.Error(codes.Unimplemented, "unimplemented")
 	}
-	err = plugin.AttachVolume(ctx, "test-vol", "node-1")
+	resp, err = plugin.AttachVolume(ctx, volume.AttachVolumeRequest{VolumeID: "test-vol", Node: "node-1"})
 	if err != nil {
 		t.Errorf("AttachVolume should have ignored Unimplemented error, got: %v", err)
+	}
+	if len(resp.PublishContext) != 0 {
+		t.Errorf("expected no publish context from an unimplemented attach, got %v", resp.PublishContext)
 	}
 }
 
@@ -293,10 +319,35 @@ func TestPlugin_MountVolume(t *testing.T) {
 	plugin.stagingDirPrefix = filepath.Join(tmpDir, "staging")
 	targetPath := filepath.Join(tmpDir, "target")
 
+	// The publish context recorded at attach time is what lets the node plugin
+	// find the attached device, so both node calls have to carry it.
+	publishContext := map[string]string{"devicePath": "/dev/xvdba"}
+	var stageReq *csi.NodeStageVolumeRequest
+	var publishReq *csi.NodePublishVolumeRequest
+	driver.nodeStageVolumeFunc = func(ctx context.Context, req *csi.NodeStageVolumeRequest) (*csi.NodeStageVolumeResponse, error) {
+		stageReq = req
+		return &csi.NodeStageVolumeResponse{}, nil
+	}
+	driver.nodePublishVolumeFunc = func(ctx context.Context, req *csi.NodePublishVolumeRequest) (*csi.NodePublishVolumeResponse, error) {
+		publishReq = req
+		return &csi.NodePublishVolumeResponse{}, nil
+	}
+
 	ctx := context.Background()
-	err = plugin.MountVolume(ctx, "test-vol", targetPath, nil)
+	err = plugin.MountVolume(ctx, volume.MountVolumeRequest{
+		VolumeID:       "test-vol",
+		TargetPath:     targetPath,
+		PublishContext: publishContext,
+	})
 	if err != nil {
 		t.Fatalf("MountVolume failed: %v", err)
+	}
+
+	if diff := cmp.Diff(publishContext, stageReq.GetPublishContext()); diff != "" {
+		t.Errorf("NodeStageVolume publish context mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(publishContext, publishReq.GetPublishContext()); diff != "" {
+		t.Errorf("NodePublishVolume publish context mismatch (-want +got):\n%s", diff)
 	}
 
 	// Verify staging directory was created
@@ -313,7 +364,7 @@ func TestPlugin_MountVolume(t *testing.T) {
 	os.RemoveAll(tmpDir)
 	os.MkdirAll(plugin.stagingDirPrefix, 0750)
 
-	err = plugin.MountVolume(ctx, "test-vol-2", targetPath, nil)
+	err = plugin.MountVolume(ctx, volume.MountVolumeRequest{VolumeID: "test-vol-2", TargetPath: targetPath})
 	if err != nil {
 		t.Errorf("MountVolume should have succeeded when NodeStageVolume is unimplemented, got: %v", err)
 	}

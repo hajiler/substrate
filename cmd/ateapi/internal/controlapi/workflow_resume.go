@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/agent-substrate/substrate/cmd/ateapi/internal/scheduling"
@@ -26,9 +27,11 @@ import (
 	"github.com/agent-substrate/substrate/internal/ateattr"
 	"github.com/agent-substrate/substrate/internal/proto/ateletpb"
 	"github.com/agent-substrate/substrate/internal/resources"
+	"github.com/agent-substrate/substrate/internal/volume"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -121,10 +124,12 @@ func (w *ActorWorkflow) ResumeActor(ctx context.Context, actorRef resources.Acto
 		return nil, false, err
 	}
 	actor = assigned
-	if err = w.ensureVolumesAttached(leaseCtx, actor, worker, actorTemplate); err != nil {
+	var attached *ateapipb.Actor
+	if attached, err = w.ensureVolumesAttached(leaseCtx, actorRef, actor, worker, actorTemplate); err != nil {
 		return nil, false, err
 	}
-	if tele, err = w.ensureAteletRestored(leaseCtx, actorRef, actor, actorTemplate, src); err != nil {
+	actor = attached
+	if tele, err = w.ensureAteletRestored(leaseCtx, actorRef, actor, actorTemplate, worker.GetNodeName(), src); err != nil {
 		return nil, false, err
 	}
 	var running *ateapipb.Actor
@@ -613,16 +618,32 @@ func schedulingConstraints(actor *ateapipb.Actor, tmpl *ateapipb.ActorTemplate) 
 }
 
 // ensureVolumesAttached attaches the actor's mounted external volumes to the
-// assigned worker's node. Attachment is idempotent, so a re-entered workflow
-// safely runs it again.
+// assigned worker's node and records the driver's attachment metadata, which
+// the node plugin needs to complete the mount. Attachment is idempotent, so a
+// re-entered workflow safely runs it again.
 // TODO replace re-execution with a proper check on the volumes' attach state.
-func (w *ActorWorkflow) ensureVolumesAttached(ctx context.Context, actor *ateapipb.Actor, worker *ateapipb.Worker, actorTemplate *ateapipb.ActorTemplate) (err error) {
+//
+// It returns the actor as persisted; when no attachment metadata changed the
+// actor is returned unmodified and nothing is written, keeping the common
+// resume off the store's write path.
+func (w *ActorWorkflow) ensureVolumesAttached(ctx context.Context, actorRef resources.ActorRef, actor *ateapipb.Actor, worker *ateapipb.Worker, actorTemplate *ateapipb.ActorTemplate) (_ *ateapipb.Actor, err error) {
 	ctx, done := stepSpan(ctx, "AttachVolumes")
 	defer func() { err = done(err) }()
 
 	node := worker.GetNodeName()
 	if node == "" {
-		return fmt.Errorf("assigned worker has no node name")
+		return nil, fmt.Errorf("assigned worker has no node name")
+	}
+
+	// getMountedActorVolumes returns a filtered view of the actor's volumes, so
+	// the results are merged back into the full slice rather than replacing it.
+	updated := make([]*ateapipb.ExternalVolume, 0, len(actor.GetStatus().GetActorVolumes()))
+	for _, vol := range actor.GetStatus().GetActorVolumes() {
+		updated = append(updated, proto.CloneOf(vol))
+	}
+	byName := make(map[string]*ateapipb.ExternalVolume, len(updated))
+	for _, vol := range updated {
+		byName[vol.GetVolumeName()] = vol
 	}
 
 	ref := &ateapipb.ObjectRef{Atespace: actor.GetMetadata().GetAtespace(), Name: actor.GetMetadata().GetName()}
@@ -630,13 +651,38 @@ func (w *ActorWorkflow) ensureVolumesAttached(ctx context.Context, actor *ateapi
 		slog.InfoContext(ctx, "Attaching volume to node", slog.String("volume_id", vol.GetStorageVolumeId()), slog.String("node", node))
 		plugin, err := w.pluginRegistry.GetPlugin(ctx, vol.GetVolumeType())
 		if err != nil {
-			return fmt.Errorf("failed to get volume plugin for %q: %w", vol.GetVolumeType(), err)
+			return nil, fmt.Errorf("failed to get volume plugin for %q: %w", vol.GetVolumeType(), err)
 		}
-		if err := plugin.AttachVolume(ctx, vol.GetStorageVolumeId(), node); err != nil {
-			return fmt.Errorf("failed to attach volume %q to node %q: %w", vol.GetStorageVolumeId(), node, err)
+		resp, err := plugin.AttachVolume(ctx, volume.AttachVolumeRequest{VolumeID: vol.GetStorageVolumeId(), Node: node})
+		if err != nil {
+			return nil, fmt.Errorf("failed to attach volume %q to node %q: %w", vol.GetStorageVolumeId(), node, err)
+		}
+		// The attach result is authoritative, including when it is empty: a
+		// driver that stopped handing out attachment metadata must not leave a
+		// stale map behind.
+		if target := byName[vol.GetVolumeName()]; target != nil {
+			target.PublishContext = resp.PublishContext
+			target.PublishContextNode = node
 		}
 	}
-	return nil
+
+	if slices.EqualFunc(actor.GetStatus().GetActorVolumes(), updated, func(a, b *ateapipb.ExternalVolume) bool {
+		return proto.Equal(a, b)
+	}) {
+		return actor, nil
+	}
+
+	storedActor, updateErr := w.store.UpdateActor(ctx, actorRef, store.PreconditionFrom(actor), func(toUpdate *ateapipb.Actor) error {
+		toUpdate.Status.ActorVolumes = updated
+		return nil
+	})
+	if updateErr != nil {
+		if errors.Is(updateErr, store.ErrVersionConflict) {
+			return nil, status.Error(codes.Aborted, "concurrent update conflict, please retry")
+		}
+		return nil, fmt.Errorf("while updating actor after volume attach: %w", updateErr)
+	}
+	return storedActor, nil
 }
 
 // ensureAteletRestored brings the workload up on the assigned worker:
@@ -646,7 +692,7 @@ func (w *ActorWorkflow) ensureVolumesAttached(ctx context.Context, actor *ateapi
 // the worker pod UID, so a re-entered workflow re-sends the same semantic
 // request; once atelet's Restore/Run are idempotent on those keys this step
 // becomes fully reentrant with no changes here.
-func (w *ActorWorkflow) ensureAteletRestored(ctx context.Context, actorRef resources.ActorRef, actor *ateapipb.Actor, actorTemplate *ateapipb.ActorTemplate, src resumeSnapshotSource) (tele restoreTelemetry, err error) {
+func (w *ActorWorkflow) ensureAteletRestored(ctx context.Context, actorRef resources.ActorRef, actor *ateapipb.Actor, actorTemplate *ateapipb.ActorTemplate, node string, src resumeSnapshotSource) (tele restoreTelemetry, err error) {
 	ctx, done := stepSpan(ctx, "CallAteletRestore")
 	defer func() { err = done(err) }()
 
@@ -657,7 +703,7 @@ func (w *ActorWorkflow) ensureAteletRestored(ctx context.Context, actorRef resou
 	}
 	client := ateletpb.NewAteomHerderClient(ateletConn)
 
-	workloadSpec, err := workloadSpecFromActorTemplate(actorTemplate, actor)
+	workloadSpec, err := workloadSpecFromActorTemplate(actorTemplate, actor, node)
 	if err != nil {
 		return tele, err
 	}
