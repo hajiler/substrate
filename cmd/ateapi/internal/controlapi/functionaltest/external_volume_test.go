@@ -465,6 +465,84 @@ func TestExternalVolume_SequentialHandoff(t *testing.T) {
 	}
 }
 
+// TestExternalVolume_HeldByAnotherActor is the guarantee the sequential CUJ
+// rests on: a second actor cannot resume onto a volume somebody is holding.
+// Nothing below the control plane would stop the two of them from writing at
+// once, so the refusal is what makes sharing safe without access modes.
+func TestExternalVolume_HeldByAnotherActor(t *testing.T) {
+	ns := namespaceForTest("ns-extvol-held")
+	tc, plugin := setupExternalVolumeTest(t, ns)
+	defer tc.cleanup()
+
+	shared := createExternalVolume(t, tc, "held", ateapipb.ReclaimPolicy_RECLAIM_POLICY_RETAIN)
+	createTemplateWithVolumes(t, tc, ns,
+		[]*ateapipb.Volume{{Name: "work", ExternalVolumeRef: &ateapipb.ExternalVolumeRef{Name: "held"}}},
+		[]*ateapipb.VolumeMount{{Name: "work", MountPath: "/mnt/work"}})
+	// Two workers, so the second resume fails on the volume rather than on
+	// there being nowhere to run. Both on the node the harness runs an atelet
+	// for; which node they land on is not what this test is about.
+	firstWorker := createWorkerPod(t, tc, ns, "worker-1", "node1", "pool1")
+	secondWorker := createWorkerPod(t, tc, ns, "worker-2", "node1", "pool1")
+
+	ctx := context.Background()
+	for _, name := range []string{"producer", "consumer"} {
+		if _, err := tc.client.CreateActor(ctx, &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{
+			Metadata:      &ateapipb.ResourceMetadata{Atespace: testAtespace, Name: name},
+			ActorTemplate: &ateapipb.ObjectRef{Atespace: testAtespace, Name: "tmpl1"},
+		}}); err != nil {
+			t.Fatalf("CreateActor(%s) failed: %v", name, err)
+		}
+	}
+
+	waitForWorkerAvailable(t, tc, firstWorker)
+	if _, err := tc.client.ResumeActor(ctx, &ateapipb.ResumeActorRequest{
+		Actor: &ateapipb.ObjectRef{Atespace: testAtespace, Name: "producer"},
+	}); err != nil {
+		t.Fatalf("ResumeActor(producer) failed: %v", err)
+	}
+
+	waitForWorkerAvailable(t, tc, secondWorker)
+	_, err := tc.client.ResumeActor(ctx, &ateapipb.ResumeActorRequest{
+		Actor: &ateapipb.ObjectRef{Atespace: testAtespace, Name: "consumer"},
+	})
+	assertGrpcErrorRegex(t, err, codes.FailedPrecondition, `ExternalVolume .*held.* is already held by actor "producer"`)
+
+	// The refusal changed nothing: the producer still holds the volume, the
+	// consumer is still suspended, and the disk was never staged on its node.
+	if diff := cmp.Diff([]string{"producer"}, refNames(t, tc, "held")); diff != "" {
+		t.Errorf("refs after the refused resume mismatch (-want +got):\n%s", diff)
+	}
+	consumer, err := tc.client.GetActor(ctx, &ateapipb.GetActorRequest{
+		Actor: &ateapipb.ObjectRef{Atespace: testAtespace, Name: "consumer"},
+	})
+	if err != nil {
+		t.Fatalf("GetActor(consumer) failed: %v", err)
+	}
+	if got := consumer.GetStatus().GetState(); got != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
+		t.Errorf("consumer is in %v, want it left SUSPENDED", got)
+	}
+	_, _, attached, _ := plugin.snapshot()
+	if diff := cmp.Diff([]string{shared.GetVolumeId() + "@node1"}, attached); diff != "" {
+		t.Errorf("attached disks mismatch (-want +got):\n%s", diff)
+	}
+
+	// The producer stops, and the same resume now succeeds.
+	if _, err := tc.client.SuspendActor(ctx, &ateapipb.SuspendActorRequest{
+		Actor: &ateapipb.ObjectRef{Atespace: testAtespace, Name: "producer"},
+	}); err != nil {
+		t.Fatalf("SuspendActor(producer) failed: %v", err)
+	}
+	waitForWorkerAvailable(t, tc, secondWorker)
+	if _, err := tc.client.ResumeActor(ctx, &ateapipb.ResumeActorRequest{
+		Actor: &ateapipb.ObjectRef{Atespace: testAtespace, Name: "consumer"},
+	}); err != nil {
+		t.Fatalf("ResumeActor(consumer) after the handoff failed: %v", err)
+	}
+	if diff := cmp.Diff([]string{"consumer"}, refNames(t, tc, "held")); diff != "" {
+		t.Errorf("refs after the handoff mismatch (-want +got):\n%s", diff)
+	}
+}
+
 // TestDeleteActor_LeavesBorrowedVolume checks that an actor's delete does not
 // take the storage it borrowed with it: the disk belongs to the ExternalVolume,
 // which outlives every actor that mounts it.

@@ -16,6 +16,7 @@ package controlapi
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/agent-substrate/substrate/cmd/ateapi/internal/store"
@@ -225,6 +226,40 @@ func TestClaimExternalVolumes_Rejected(t *testing.T) {
 				t.Errorf("claimExternalVolumes() = %v, want FailedPrecondition", err)
 			}
 		})
+	}
+}
+
+// TestClaimExternalVolumes_AlreadyHeld is the exclusion rule: sharing is
+// sequential, so a volume another actor is holding cannot be taken, and the
+// refused claim must leave the holder's reference exactly as it found it.
+func TestClaimExternalVolumes_AlreadyHeld(t *testing.T) {
+	ctx := context.Background()
+	st := newTestPersistence(t)
+	const holderUID = "22222222-2222-2222-2222-222222222222"
+	mustStoreReadyVolume(t, ctx, st, "shared",
+		&ateapipb.ActorRef{ActorUid: holderUID, ActorName: "producer"})
+
+	_, err := claimExternalVolumes(ctx, st, refTestActor(), borrowingTemplate("shared"))
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("claimExternalVolumes() = %v, want FailedPrecondition", err)
+	}
+	// The holder is named so the caller knows which actor to stop.
+	if msg := status.Convert(err).Message(); !strings.Contains(msg, "producer") {
+		t.Errorf("error %q does not name the holding actor", msg)
+	}
+	if diff := cmp.Diff([]string{holderUID}, refUIDs(mustGetVolume(t, ctx, st, "shared"))); diff != "" {
+		t.Errorf("refs mismatch (-want +got):\n%s", diff)
+	}
+
+	// Once the holder gives the volume back, the next actor may take it.
+	if err := releaseExternalVolume(ctx, st, resources.ExternalVolumeRef{Atespace: refTestAtespace, Name: "shared"}, holderUID); err != nil {
+		t.Fatalf("releaseExternalVolume: %v", err)
+	}
+	if _, err := claimExternalVolumes(ctx, st, refTestActor(), borrowingTemplate("shared")); err != nil {
+		t.Fatalf("claimExternalVolumes after release: %v", err)
+	}
+	if diff := cmp.Diff([]string{refTestActorUID}, refUIDs(mustGetVolume(t, ctx, st, "shared"))); diff != "" {
+		t.Errorf("refs mismatch after handoff (-want +got):\n%s", diff)
 	}
 }
 
