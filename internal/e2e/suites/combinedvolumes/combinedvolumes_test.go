@@ -366,6 +366,25 @@ func TestSharedExternalVolumeHandoff(t *testing.T) {
 	}
 	requireContent(ctx, t, router, producer, handoffFile, probeWrittenContent)
 
+	// Sequential sharing is a rule, not a convention: while the producer holds
+	// the volume the consumer may not take it. Nothing below the control plane
+	// would stop the two from writing at once, so this is enforced at the claim.
+	_, err = e2e.ResumeActorAwaitCapacity(t, ctx, clients, &ateapipb.ResumeActorRequest{Actor: consumer.ToObjectRef()})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("ResumeActor(consumer) while the producer holds the volume = %v, want FailedPrecondition", err)
+	}
+	if !strings.Contains(err.Error(), producer.Name) {
+		t.Errorf("ResumeActor(consumer) error %q does not name the holder %q", err, producer.Name)
+	}
+	// A refused claim leaves the actor where it was rather than half-started.
+	blocked, err := clients.SubstrateAPI.GetActor(ctx, &ateapipb.GetActorRequest{Actor: consumer.ToObjectRef()})
+	if err != nil {
+		t.Fatalf("GetActor(consumer): %v", err)
+	}
+	if got := blocked.GetStatus().GetState(); got != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
+		t.Errorf("consumer state after a refused claim = %s, want ACTOR_STATE_SUSPENDED", got)
+	}
+
 	// The producer stops, which detaches the disk and gives the reference back.
 	// Only then may the consumer take it: sharing is sequential in this
 	// milestone.
@@ -401,6 +420,43 @@ func TestSharedExternalVolumeHandoff(t *testing.T) {
 	}
 	if mounted != stored.GetVolumeId() {
 		t.Errorf("the consumer mounted %q, want the shared volume's own disk %q", mounted, stored.GetVolumeId())
+	}
+}
+
+// TestSharedExternalVolumeMissing is the other half of referencing a volume by
+// name: a reference that does not resolve fails the resume outright. There is
+// deliberately no fallback that provisions a replacement, because an actor that
+// came up healthy on a silently-created empty disk would see none of its data.
+func TestSharedExternalVolumeMissing(t *testing.T) {
+	ctx := context.Background()
+	clients := e2e.GetClients()
+	ns := e2e.CreateNamespace(t)
+
+	if storageClassOrEmpty(ctx, t, clients) == "" {
+		t.Skipf("StorageClass %q is not installed", e2e.StorageClass)
+	}
+
+	// No CreateExternalVolume call: the template names a volume that was never
+	// registered.
+	tmpl := createHandoffTemplate(ctx, t, clients, ns, "absent-"+ns.Name)
+	actor := createHandoffActor(ctx, t, clients, tmpl, "orphan-"+ns.Name)
+
+	_, err := e2e.ResumeActorAwaitCapacity(t, ctx, clients, &ateapipb.ResumeActorRequest{Actor: actor.ToObjectRef()})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("ResumeActor with an unresolvable volume reference = %v, want FailedPrecondition", err)
+	}
+
+	got, err := clients.SubstrateAPI.GetActor(ctx, &ateapipb.GetActorRequest{Actor: actor.ToObjectRef()})
+	if err != nil {
+		t.Fatalf("GetActor: %v", err)
+	}
+	if state := got.GetStatus().GetState(); state != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
+		t.Errorf("actor state after a failed resume = %s, want ACTOR_STATE_SUSPENDED", state)
+	}
+	for _, vol := range got.GetStatus().GetActorVolumes() {
+		if vol.GetVolumeName() == sharedVolume {
+			t.Errorf("a disk was provisioned for the missing reference: %q", vol.GetStorageVolumeId())
+		}
 	}
 }
 
