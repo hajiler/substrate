@@ -40,6 +40,8 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -64,6 +66,13 @@ const (
 	extPathA    = "/mnt/ate-external-a"
 	extPathB    = "/mnt/ate-external-b"
 	extCapacity = "1Gi"
+
+	// The shared ExternalVolume is mounted here by one actor at a time: it
+	// outlives every actor that borrows it, which is what lets one hand work
+	// to the next.
+	sharedVolume = "shared"
+	sharedPath   = "/mnt/ate-shared"
+	sharedFile   = "handoff.txt"
 
 	// probeWrittenContent is the fixed string the probe's /writefile writes.
 	probeWrittenContent = "written by probe"
@@ -231,6 +240,168 @@ func createTemplate(ctx context.Context, t *testing.T, clients *e2e.Clients, ns 
 			})
 		},
 	})
+}
+
+// createHandoffTemplate builds a probe ActorTemplate that borrows the
+// ExternalVolume named volumeName instead of provisioning a disk of its own,
+// so every actor created from it mounts the same storage.
+func createHandoffTemplate(ctx context.Context, t *testing.T, clients *e2e.Clients, ns *e2e.Namespace, volumeName string) *ateapipb.ActorTemplate {
+	t.Helper()
+
+	env, err := e2e.CheckEnv("BUCKET_NAME")
+	if err != nil {
+		t.Fatalf("CheckEnv: %v", err)
+	}
+
+	probeAtespace, _ := e2e.DeployProbe(t, env["BUCKET_NAME"], "combinedvolumes")
+	src := e2e.SubstrateFixture{
+		Atespace:      probeAtespace,
+		Name:          probeName,
+		PoolNamespace: probeAtespace,
+		PoolName:      probeName,
+		DeployWith:    "the combinedvolumes suite's own DeployProbe",
+	}
+
+	return e2e.CreateSubstrateTemplateFrom(ctx, t, clients, ns.Name, src, e2e.SubstrateTemplateOptions{
+		Atespace: atespace,
+		Name:     "handoff-" + ns.Name,
+		PoolName: probeName,
+		// Two workers, so the producer and the consumer are not forced onto
+		// the same node: the volume has to follow the actor holding it.
+		PoolReplicas: 2,
+		Labels:       map[string]string{"combinedvolumes": ns.Name},
+		SnapshotsConfig: &ateapipb.SnapshotsConfig{
+			StorageLocation: fmt.Sprintf("gs://%s/%s/", env["BUCKET_NAME"], ns.Name),
+		},
+		Modify: func(tmpl *ateapipb.ActorTemplate) {
+			tmpl.Containers[0].VolumeMounts = append(tmpl.Containers[0].VolumeMounts,
+				&ateapipb.VolumeMount{Name: sharedVolume, MountPath: sharedPath})
+			tmpl.Volumes = append(tmpl.Volumes, &ateapipb.Volume{
+				Name:              sharedVolume,
+				ExternalVolumeRef: &ateapipb.ExternalVolumeRef{Name: volumeName},
+			})
+		},
+	})
+}
+
+// createHandoffActor creates a suspended actor from tmpl and registers its
+// teardown, which must run before the shared volume's: a volume an actor still
+// holds cannot be deleted.
+func createHandoffActor(ctx context.Context, t *testing.T, clients *e2e.Clients, tmpl *ateapipb.ActorTemplate, name string) resources.ActorRef {
+	t.Helper()
+
+	actorRef := resources.ActorRef{Atespace: atespace, Name: name}
+	if _, err := clients.SubstrateAPI.CreateActor(ctx, &ateapipb.CreateActorRequest{
+		Actor: &ateapipb.Actor{
+			Metadata:      &ateapipb.ResourceMetadata{Atespace: actorRef.Atespace, Name: actorRef.Name},
+			ActorTemplate: e2e.TemplateRef(tmpl),
+		},
+	}); err != nil {
+		t.Fatalf("CreateActor(%s): %v", name, err)
+	}
+	t.Cleanup(func() {
+		cleanupCtx := context.Background()
+		_, _ = clients.SubstrateAPI.SuspendActor(cleanupCtx, &ateapipb.SuspendActorRequest{Actor: actorRef.ToObjectRef()})
+		_, _ = clients.SubstrateAPI.DeleteActor(cleanupCtx, &ateapipb.DeleteActorRequest{Actor: actorRef.ToObjectRef()})
+	})
+	return actorRef
+}
+
+// TestSharedExternalVolumeHandoff is the sequential-sharing case: a producer
+// writes to an ExternalVolume and stops, and a consumer started from the same
+// template reads back what the producer left there. The volume is a resource in
+// its own right, so it outlives both actors and is provisioned exactly once.
+func TestSharedExternalVolumeHandoff(t *testing.T) {
+	ctx := context.Background()
+	clients := e2e.GetClients()
+	ns := e2e.CreateNamespace(t)
+
+	if storageClassOrEmpty(ctx, t, clients) == "" {
+		t.Skipf("StorageClass %q is not installed", e2e.StorageClass)
+	}
+
+	volumeName := "shared-" + ns.Name
+	// The template is created first because it is what creates the suite's
+	// atespace, which the volume then lands in.
+	tmpl := createHandoffTemplate(ctx, t, clients, ns, volumeName)
+
+	volumeRef := &ateapipb.ObjectRef{Atespace: atespace, Name: volumeName}
+	if _, err := clients.SubstrateAPI.CreateExternalVolume(ctx, &ateapipb.CreateExternalVolumeRequest{
+		ExternalVolume: &ateapipb.ExternalVolume{
+			Metadata:         &ateapipb.ResourceMetadata{Atespace: atespace, Name: volumeName},
+			StorageClassName: e2e.StorageClass,
+			Capacity:         extCapacity,
+			// The disk exists only for this run, so the test takes it with it.
+			ReclaimPolicy: ateapipb.ReclaimPolicy_RECLAIM_POLICY_DELETE,
+		},
+	}); err != nil {
+		t.Fatalf("CreateExternalVolume: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := clients.SubstrateAPI.DeleteExternalVolume(context.Background(), &ateapipb.DeleteExternalVolumeRequest{ExternalVolume: volumeRef}); err != nil {
+			t.Errorf("DeleteExternalVolume: %v", err)
+		}
+	})
+
+	// Registered after the volume's cleanup so they are torn down before it.
+	producer := createHandoffActor(ctx, t, clients, tmpl, "producer-"+ns.Name)
+	consumer := createHandoffActor(ctx, t, clients, tmpl, "consumer-"+ns.Name)
+
+	router, err := e2e.NewRouterClient(ctx)
+	if err != nil {
+		t.Fatalf("NewRouterClient: %v", err)
+	}
+	defer router.Close()
+
+	handoffFile := sharedPath + "/" + sharedFile
+
+	if _, err := e2e.ResumeActorAwaitCapacity(t, ctx, clients, &ateapipb.ResumeActorRequest{Actor: producer.ToObjectRef()}); err != nil {
+		t.Fatalf("ResumeActor(producer): %v", err)
+	}
+	// Nothing has written to the volume yet, so a read that succeeded here
+	// would mean the later one proves nothing.
+	requireUnreadable(ctx, t, router, producer, handoffFile)
+	if got := probeJSON(ctx, t, router, producer, "/writefile?path="+handoffFile); got["error"] != "" {
+		t.Fatalf("writing %s: %s", handoffFile, got["error"])
+	}
+	requireContent(ctx, t, router, producer, handoffFile, probeWrittenContent)
+
+	// The producer stops, which detaches the disk and gives the reference back.
+	// Only then may the consumer take it: sharing is sequential in this
+	// milestone.
+	if _, err := clients.SubstrateAPI.SuspendActor(ctx, &ateapipb.SuspendActorRequest{Actor: producer.ToObjectRef()}); err != nil {
+		t.Fatalf("SuspendActor(producer): %v", err)
+	}
+
+	if _, err := e2e.ResumeActorAwaitCapacity(t, ctx, clients, &ateapipb.ResumeActorRequest{Actor: consumer.ToObjectRef()}); err != nil {
+		t.Fatalf("ResumeActor(consumer): %v", err)
+	}
+	// The consumer never wrote anything, so reading the producer's bytes is
+	// what says the two actors share one disk.
+	requireContent(ctx, t, router, consumer, handoffFile, probeWrittenContent)
+
+	// A volume the consumer is still holding must not be deletable, and the
+	// storage must be the volume's own rather than a disk cut for the actor.
+	if _, err := clients.SubstrateAPI.DeleteExternalVolume(ctx, &ateapipb.DeleteExternalVolumeRequest{ExternalVolume: volumeRef}); status.Code(err) != codes.FailedPrecondition {
+		t.Errorf("DeleteExternalVolume while borrowed = %v, want FailedPrecondition", err)
+	}
+	stored, err := clients.SubstrateAPI.GetExternalVolume(ctx, &ateapipb.GetExternalVolumeRequest{ExternalVolume: volumeRef})
+	if err != nil {
+		t.Fatalf("GetExternalVolume: %v", err)
+	}
+	actor, err := clients.SubstrateAPI.GetActor(ctx, &ateapipb.GetActorRequest{Actor: consumer.ToObjectRef()})
+	if err != nil {
+		t.Fatalf("GetActor(consumer): %v", err)
+	}
+	var mounted string
+	for _, vol := range actor.GetStatus().GetActorVolumes() {
+		if vol.GetVolumeName() == sharedVolume {
+			mounted = vol.GetStorageVolumeId()
+		}
+	}
+	if mounted != stored.GetVolumeId() {
+		t.Errorf("the consumer mounted %q, want the shared volume's own disk %q", mounted, stored.GetVolumeId())
+	}
 }
 
 // probeJSON calls a probe endpoint through the router and decodes its reply.
