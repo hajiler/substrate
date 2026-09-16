@@ -112,8 +112,16 @@ func workloadSpecFromActorTemplate(actorTemplate *ateapipb.ActorTemplate, actor 
 				},
 			})
 
+		case vol.GetExternalVolumeTemplate() != nil, vol.GetExternalVolumeRef() != nil:
+			// Handled by appendExternalVolumes below, which needs the handles
+			// the actor's status carries rather than just the template.
+			continue
+
 		default:
-			continue // Drop unrecognized volumes.
+			// The union guarantees exactly one member is set, so reaching here
+			// means a member was added without teaching this mapper about it.
+			// Failing loudly beats handing atelet a workload missing a mount.
+			return nil, fmt.Errorf("volume %q has no source this control plane understands", vol.GetName())
 		}
 	}
 
@@ -157,17 +165,22 @@ func workloadSpecFromActorTemplate(actorTemplate *ateapipb.ActorTemplate, actor 
 
 // appendExternalVolumes maps template external volumes to resolved actor volumes and appends them to workloadSpec
 // if they are referenced in container volumeMounts.
+//
+// Both kinds of external volume land here: one provisioned per actor from a
+// template, and one shared, named by reference. They differ only in who owns
+// the disk's lifetime, which is settled by the time the resume workflow has
+// written the handle onto the actor's status.
 func appendExternalVolumes(workloadSpec *ateletpb.WorkloadSpec, template *ateapipb.ActorTemplate, actor *ateapipb.Actor) error {
 	if template == nil {
 		return nil
 	}
 	for _, vol := range template.GetVolumes() {
-		if vol.GetExternalVolumeTemplate() != nil {
+		if vol.GetExternalVolumeTemplate() != nil || vol.GetExternalVolumeRef() != nil {
 			if !isVolumeMounted(vol.GetName(), template) {
 				continue
 			}
 			if actor == nil {
-				return fmt.Errorf("actor is required when externalVolumeTemplate is present")
+				return fmt.Errorf("actor is required when an external volume is present")
 			}
 
 			var storageVolID string

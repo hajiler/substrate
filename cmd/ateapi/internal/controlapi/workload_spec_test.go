@@ -15,6 +15,7 @@
 package controlapi
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/agent-substrate/substrate/internal/proto/ateletpb"
@@ -223,11 +224,14 @@ func TestWorkloadSpecFromActorTemplate(t *testing.T) {
 			},
 		},
 		{
-			name: "skips non-DurableDir volumes",
+			// External volumes are added by appendExternalVolumes instead, from
+			// the handles the actor's status carries.
+			name: "leaves external volumes to the caller",
 			template: &ateapipb.ActorTemplate{
 				Metadata: &ateapipb.ResourceMetadata{Atespace: "agent-ns", Name: "tmpl1"},
 				Volumes: []*ateapipb.Volume{
-					{Name: "unsupported"},
+					{Name: "borrowed", ExternalVolumeRef: &ateapipb.ExternalVolumeRef{Name: "shared"}},
+					{Name: "owned", ExternalVolumeTemplate: &ateapipb.ExternalVolumeTemplate{StorageClassName: "standard"}},
 					{Name: "home", DurableDir: &ateapipb.DurableDirVolumeSource{}},
 				},
 				Containers: []*ateapipb.Container{
@@ -339,6 +343,22 @@ func TestWorkloadSpecFromActorTemplate(t *testing.T) {
 				t.Errorf("WorkloadSpec mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// TestWorkloadSpecFromActorTemplateRejectsUnknownVolumeSource guards the
+// union: a member this mapper has not been taught about must fail loudly
+// rather than hand atelet a workload that is silently missing a mount.
+func TestWorkloadSpecFromActorTemplateRejectsUnknownVolumeSource(t *testing.T) {
+	_, err := workloadSpecFromActorTemplate(&ateapipb.ActorTemplate{
+		Metadata: &ateapipb.ResourceMetadata{Atespace: "agent-ns", Name: "tmpl-unknown"},
+		Volumes:  []*ateapipb.Volume{{Name: "unsupported"}},
+	}, nil)
+	if err == nil {
+		t.Fatal("workloadSpecFromActorTemplate() = nil, want an error for a volume with no source")
+	}
+	if !strings.Contains(err.Error(), "unsupported") {
+		t.Errorf("error = %q, want it to name the offending volume", err)
 	}
 }
 

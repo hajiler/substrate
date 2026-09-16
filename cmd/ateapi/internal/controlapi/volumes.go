@@ -33,6 +33,9 @@ func initialActorVolumes(ctx context.Context, scLister storagev1listers.StorageC
 	if template == nil {
 		return nil, status.Error(codes.InvalidArgument, "template is required")
 	}
+	// A volume borrowed through an external_volume_ref gets no entry here: its
+	// driver and handle are only known once the ExternalVolume is read, which
+	// happens when the actor resumes and claims it.
 	var volumes []*ateapipb.ActorVolumeStatus
 	for _, vol := range template.GetVolumes() {
 		if vol.GetExternalVolumeTemplate() != nil {
@@ -72,6 +75,13 @@ func createActorVolumes(ctx context.Context, registry VolumePluginRegistry, scLi
 
 	for idx, vol := range volumesToCreate {
 		currentIdx = idx
+
+		// A borrowed volume's disk belongs to an ExternalVolume, which the
+		// claim step already resolved. There is nothing to provision.
+		if vol.GetExternalVolumeName() != "" {
+			resultVolumes = append(resultVolumes, vol)
+			continue
+		}
 
 		var specVol *ateapipb.Volume
 		volName := vol.GetVolumeName()
@@ -130,13 +140,20 @@ func createActorVolumes(ctx context.Context, registry VolumePluginRegistry, scLi
 	return resultVolumes, nil
 }
 
-// deleteActorVolumes deletes all external volumes in the list.
+// deleteActorVolumes deletes the external volumes the actor owns.
+//
+// A volume borrowed from an ExternalVolume is left alone: the actor only ever
+// held a reference to it, other actors may still be using it, and whether the
+// disk survives is the ExternalVolume's reclaim policy to decide.
 func deleteActorVolumes(ctx context.Context, registry VolumePluginRegistry, actorUID string, volumes []*ateapipb.ActorVolumeStatus) error {
 	if actorUID == "" {
 		return errors.New("actorUID is required")
 	}
 	var errs []error
 	for _, vol := range volumes {
+		if vol.GetExternalVolumeName() != "" {
+			continue
+		}
 		volID := vol.GetStorageVolumeId()
 		if volID == "" {
 			// If the volume hasn't been successfully created yet, it's possible

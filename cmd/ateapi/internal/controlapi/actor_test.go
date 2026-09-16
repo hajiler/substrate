@@ -27,6 +27,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/testing/protocmp"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 )
@@ -1433,6 +1434,56 @@ func TestValidateSuspendActorRequest(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assertValidateErr(t, validateSuspendActorRequest(context.Background(), tt.req), tt.want)
+		})
+	}
+}
+
+// TestResolveTagSourceRejectsSharedVolumes checks that neither kind of
+// external volume can be cloned from a tag: a provisioned disk has no snapshot
+// to clone, and a borrowed one is shared in turn rather than concurrently, so
+// a clone would be a second actor holding it at the same time.
+func TestResolveTagSourceRejectsSharedVolumes(t *testing.T) {
+	ctx := context.Background()
+	persistence := newTestPersistence(t)
+	svc := &ServiceImpl{store: persistence}
+
+	template := &ateapipb.ActorTemplate{
+		Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "tmpl", Uid: "template-uid"},
+	}
+	tag := storetest.MustCreateTag(t, ctx, persistence, &ateapipb.Tag{
+		Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "golden"},
+		Scope:    ateapipb.TagScope_TAG_SCOPE_ATESPACE,
+		Status: &ateapipb.TagStatus{
+			ActorTemplateUid: template.GetMetadata().GetUid(),
+			Snapshot:         &ateapipb.ExternalSnapshot{SnapshotUri: "gs://bucket/snapshot"},
+		},
+	})
+	tagRef := &ateapipb.ObjectRef{Atespace: tag.GetMetadata().GetAtespace(), Name: tag.GetMetadata().GetName()}
+
+	for _, tt := range []struct {
+		name   string
+		volume *ateapipb.Volume
+	}{
+		{
+			name:   "provisioned",
+			volume: &ateapipb.Volume{Name: "data", ExternalVolumeTemplate: &ateapipb.ExternalVolumeTemplate{StorageClassName: "standard"}},
+		},
+		{
+			name:   "borrowed",
+			volume: &ateapipb.Volume{Name: "shared-data", ExternalVolumeRef: &ateapipb.ExternalVolumeRef{Name: "shared"}},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			withVolume := proto.Clone(template).(*ateapipb.ActorTemplate)
+			withVolume.Volumes = []*ateapipb.Volume{tt.volume}
+
+			_, err := svc.resolveTagSource(ctx, "team-a", tagRef, withVolume)
+			if status.Code(err) != codes.FailedPrecondition {
+				t.Fatalf("resolveTagSource() = %v, want FailedPrecondition", err)
+			}
+			if !strings.Contains(err.Error(), "Tag cloning does not support") {
+				t.Errorf("error = %q, want it to say tag cloning is unsupported", err)
+			}
 		})
 	}
 }

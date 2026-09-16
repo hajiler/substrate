@@ -372,6 +372,20 @@ message ActorVolumeStatus {
   // +k8s:eachKey=+k8s:maxLength=128
   // +k8s:eachVal=+k8s:maxLength=256
   map<string, string> volume_context = 5;
+
+  // external_volume_name names the ExternalVolume, in the actor's own
+  // atespace, this mount borrows. Empty when the actor owns the disk itself,
+  // which is what says whether deleting the actor may collect it.
+  //
+  // Recorded here rather than read back off the ActorTemplate because the
+  // template can be deleted while the actor is still being torn down, and
+  // guessing wrong would collect a disk other actors are still using.
+  //
+  // +k8s:optional
+  // +k8s:format=k8s-short-name
+  // +k8s:update=NoModify
+  // +k8s:update=NoUnset # set-once, like volume_name above
+  string external_volume_name = 6;
 }
 
 message Actor {
@@ -1272,8 +1286,8 @@ message Volume {
   // +k8s:format=k8s-short-name
   string name = 1;
 
-  // Exactly one of durable_dir / external_volume_template / image /
-  // system_info must be set.
+  // Exactly one of durable_dir / external_volume_template /
+  // external_volume_ref / image / system_info must be set.
   //
   // +k8s:optional
   // +k8s:unionMember
@@ -1282,6 +1296,13 @@ message Volume {
   // +k8s:optional
   // +k8s:unionMember
   ExternalVolumeTemplate external_volume_template = 3;
+
+  // external_volume_ref mounts an ExternalVolume that already exists, rather
+  // than provisioning a disk for this actor alone.
+  //
+  // +k8s:optional
+  // +k8s:unionMember
+  ExternalVolumeRef external_volume_ref = 4;
 
   // +k8s:optional
   // +k8s:unionMember
@@ -1327,6 +1348,23 @@ message ExternalVolumeTemplate {
   // +k8s:required
   // +k8s:format=k8s-long-name
   string storage_class_name = 2;
+}
+
+// ExternalVolumeRef mounts an ExternalVolume that already exists, rather than
+// provisioning one per actor. The volume outlives the actor, so several actors
+// can hold the same storage in turn.
+//
+// The volume must live in the actor's own atespace, which is why only a name is
+// named here. An actor holds a reference for as long as it is resumed, and
+// releases it on pause, suspend, delete and crash; a volume that is still
+// referenced cannot be deleted.
+message ExternalVolumeRef {
+  // name of the ExternalVolume, in the actor's atespace. It must already exist
+  // and be ready when the actor resumes.
+  //
+  // +k8s:required
+  // +k8s:format=k8s-short-name
+  string name = 1;
 }
 
 // SystemInfoVolumeSource is a read-only volume of substrate-generated
