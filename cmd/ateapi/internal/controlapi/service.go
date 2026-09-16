@@ -108,6 +108,14 @@ func NewRPCService(
 	return s
 }
 
+// ExternalVolumeWorkflow exposes the workflow behind the ExternalVolume RPCs to
+// in-process callers, which reach it by resource ref rather than by request.
+// The collector uses it so a volume it collects is torn down by exactly the
+// same steps, and under the same lease, as one a client deletes.
+func (s *RPCService) ExternalVolumeWorkflow() *ExternalVolumeWorkflow {
+	return s.externalVolumeWorkflow
+}
+
 // serviceStore enumerates the exact storage methods needed by
 // the control API and nothing more.
 type serviceStore interface {

@@ -229,6 +229,11 @@ func main() {
 	templateReconciler := controlapi.NewActorTemplateReconciler(persistence, controlSrv)
 	templateReconciler.Start(shutdownCtx)
 
+	// Collect ExternalVolumes a failed create stranded, and the references
+	// left behind by actors that are gone.
+	externalVolumeCollector := controlapi.NewExternalVolumeCollector(persistence, controlSrv.ExternalVolumeWorkflow())
+	externalVolumeCollector.Start(shutdownCtx)
+
 	lisCfg := &net.ListenConfig{}
 	lis, err := lisCfg.Listen(ctx, "tcp", *listenAddr)
 	if err != nil {
