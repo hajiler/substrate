@@ -490,9 +490,9 @@ func TestValidateActorUpdate(t *testing.T) {
 		"too many actor_volumes",
 		validInput(),
 		validOutput(withStatus(func(s *ateapipb.ActorStatus) {
-			vols := make([]*ateapipb.ExternalVolume, 33)
+			vols := make([]*ateapipb.ActorVolumeStatus, 33)
 			for i := range vols {
-				vols[i] = &ateapipb.ExternalVolume{VolumeName: fmt.Sprintf("vol-%d", i), VolumeType: "substrate.io/mock"}
+				vols[i] = &ateapipb.ActorVolumeStatus{VolumeName: fmt.Sprintf("vol-%d", i), VolumeType: "substrate.io/mock"}
 			}
 			s.ActorVolumes = vols
 		})),
@@ -503,14 +503,14 @@ func TestValidateActorUpdate(t *testing.T) {
 		"adding a volume on update is allowed",
 		validInput(withStatus()),
 		validOutput(withStatus(func(s *ateapipb.ActorStatus) {
-			s.ActorVolumes = []*ateapipb.ExternalVolume{{VolumeName: "vol-a", VolumeType: "substrate.io/mock"}}
+			s.ActorVolumes = []*ateapipb.ActorVolumeStatus{{VolumeName: "vol-a", VolumeType: "substrate.io/mock"}}
 		})),
 		nil,
 	}, {
 		"duplicate actor_volumes volume_name",
 		validInput(withStatus()),
 		validOutput(withStatus(func(s *ateapipb.ActorStatus) {
-			s.ActorVolumes = []*ateapipb.ExternalVolume{
+			s.ActorVolumes = []*ateapipb.ActorVolumeStatus{
 				{VolumeName: "vol-a", VolumeType: "substrate.io/mock"},
 				{VolumeName: "vol-a", VolumeType: "substrate.io/mock"},
 			}
@@ -519,14 +519,14 @@ func TestValidateActorUpdate(t *testing.T) {
 	}, {
 		"provisioning transition on an existing volume is valid",
 		validInput(withStatus(func(s *ateapipb.ActorStatus) {
-			s.ActorVolumes = []*ateapipb.ExternalVolume{{VolumeName: "vol-a", VolumeType: "substrate.io/mock", Status: ateapipb.ExternalVolume_STATUS_PENDING}}
+			s.ActorVolumes = []*ateapipb.ActorVolumeStatus{{VolumeName: "vol-a", VolumeType: "substrate.io/mock", Status: ateapipb.ActorVolumeStatus_STATUS_PENDING}}
 		})),
 		validOutput(withStatus(func(s *ateapipb.ActorStatus) {
-			s.ActorVolumes = []*ateapipb.ExternalVolume{{
+			s.ActorVolumes = []*ateapipb.ActorVolumeStatus{{
 				VolumeName:      "vol-a",
 				VolumeType:      "substrate.io/mock",
 				StorageVolumeId: "csi-426d29b7",
-				Status:          ateapipb.ExternalVolume_STATUS_CREATED,
+				Status:          ateapipb.ActorVolumeStatus_STATUS_CREATED,
 				VolumeContext:   map[string]string{"attachment": "iqn.2026-08.io.ate:vol-a"},
 			}}
 		})),

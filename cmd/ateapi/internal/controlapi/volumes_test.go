@@ -79,16 +79,16 @@ func TestInitialActorVolumes_PendingState(t *testing.T) {
 		},
 	}
 
-	want := []*ateapipb.ExternalVolume{
+	want := []*ateapipb.ActorVolumeStatus{
 		{
 			VolumeName: "data-vol-1",
 			VolumeType: "mock-standard",
-			Status:     ateapipb.ExternalVolume_STATUS_PENDING,
+			Status:     ateapipb.ActorVolumeStatus_STATUS_PENDING,
 		},
 		{
 			VolumeName: "data-vol-2",
 			VolumeType: "mock-fast",
-			Status:     ateapipb.ExternalVolume_STATUS_PENDING,
+			Status:     ateapipb.ActorVolumeStatus_STATUS_PENDING,
 		},
 	}
 
@@ -153,108 +153,108 @@ func TestCreateActorVolumes(t *testing.T) {
 	tests := []struct {
 		name           string
 		tmpl           *ateapipb.ActorTemplate
-		inputVolumes   []*ateapipb.ExternalVolume
+		inputVolumes   []*ateapipb.ActorVolumeStatus
 		storageClasses map[string]*storagev1.StorageClass
 		wantErr        bool
-		wantRes        []*ateapipb.ExternalVolume
+		wantRes        []*ateapipb.ActorVolumeStatus
 	}{
 		{
 			name: "partial failure returns error and preserves succeeded, failed, and remaining volumes",
 			tmpl: multiVolTmpl,
-			inputVolumes: []*ateapipb.ExternalVolume{
+			inputVolumes: []*ateapipb.ActorVolumeStatus{
 				{
 					VolumeName: "vol1",
 					VolumeType: "mock-standard",
-					Status:     ateapipb.ExternalVolume_STATUS_PENDING,
+					Status:     ateapipb.ActorVolumeStatus_STATUS_PENDING,
 				},
 				{
 					VolumeName: "vol2",
-					Status:     ateapipb.ExternalVolume_STATUS_DELETING,
+					Status:     ateapipb.ActorVolumeStatus_STATUS_DELETING,
 				},
 				{
 					VolumeName: "vol3",
-					Status:     ateapipb.ExternalVolume_STATUS_PENDING,
+					Status:     ateapipb.ActorVolumeStatus_STATUS_PENDING,
 				},
 			},
 			wantErr: true,
-			wantRes: []*ateapipb.ExternalVolume{
+			wantRes: []*ateapipb.ActorVolumeStatus{
 				{
 					VolumeName:      "vol1",
 					StorageVolumeId: "mock-vol-substrate-actor-uid-123-vol1",
 					VolumeType:      "mock-standard",
-					Status:          ateapipb.ExternalVolume_STATUS_CREATED,
+					Status:          ateapipb.ActorVolumeStatus_STATUS_CREATED,
 				},
 				{
 					VolumeName: "vol2",
-					Status:     ateapipb.ExternalVolume_STATUS_DELETING,
+					Status:     ateapipb.ActorVolumeStatus_STATUS_DELETING,
 				},
 				{
 					VolumeName: "vol3",
-					Status:     ateapipb.ExternalVolume_STATUS_PENDING,
+					Status:     ateapipb.ActorVolumeStatus_STATUS_PENDING,
 				},
 			},
 		},
 		{
 			name: "created volume status succeeds",
 			tmpl: standardTmpl,
-			inputVolumes: []*ateapipb.ExternalVolume{
+			inputVolumes: []*ateapipb.ActorVolumeStatus{
 				{
 					VolumeName:      "data-vol",
 					StorageVolumeId: "existing-vol-id",
-					Status:          ateapipb.ExternalVolume_STATUS_CREATED,
+					Status:          ateapipb.ActorVolumeStatus_STATUS_CREATED,
 				},
 			},
 			wantErr: false,
-			wantRes: []*ateapipb.ExternalVolume{
+			wantRes: []*ateapipb.ActorVolumeStatus{
 				{
 					VolumeName:      "data-vol",
 					StorageVolumeId: "existing-vol-id",
-					Status:          ateapipb.ExternalVolume_STATUS_CREATED,
+					Status:          ateapipb.ActorVolumeStatus_STATUS_CREATED,
 				},
 			},
 		},
 		{
 			name: "unspecified volume status returns error",
 			tmpl: standardTmpl,
-			inputVolumes: []*ateapipb.ExternalVolume{
+			inputVolumes: []*ateapipb.ActorVolumeStatus{
 				{
 					VolumeName: "data-vol",
-					Status:     ateapipb.ExternalVolume_STATUS_UNSPECIFIED,
+					Status:     ateapipb.ActorVolumeStatus_STATUS_UNSPECIFIED,
 				},
 			},
 			wantErr: true,
-			wantRes: []*ateapipb.ExternalVolume{
+			wantRes: []*ateapipb.ActorVolumeStatus{
 				{
 					VolumeName: "data-vol",
-					Status:     ateapipb.ExternalVolume_STATUS_UNSPECIFIED,
+					Status:     ateapipb.ActorVolumeStatus_STATUS_UNSPECIFIED,
 				},
 			},
 		},
 		{
 			name: "volume not found in template returns error",
 			tmpl: &ateapipb.ActorTemplate{},
-			inputVolumes: []*ateapipb.ExternalVolume{
+			inputVolumes: []*ateapipb.ActorVolumeStatus{
 				{
 					VolumeName: "missing-vol",
-					Status:     ateapipb.ExternalVolume_STATUS_PENDING,
+					Status:     ateapipb.ActorVolumeStatus_STATUS_PENDING,
 				},
 			},
 			wantErr: true,
-			wantRes: []*ateapipb.ExternalVolume{
+			wantRes: []*ateapipb.ActorVolumeStatus{
 				{
 					VolumeName: "missing-vol",
-					Status:     ateapipb.ExternalVolume_STATUS_PENDING,
+					Status:     ateapipb.ActorVolumeStatus_STATUS_PENDING,
 				},
 			},
 		},
 		{
 			name: "storage class parameters are propagated to volume context",
 			tmpl: standardTmpl,
-			inputVolumes: []*ateapipb.ExternalVolume{
+			inputVolumes: []*ateapipb.ActorVolumeStatus{
 				{
 					VolumeName: "data-vol",
 					VolumeType: "mock-standard",
-					Status:     ateapipb.ExternalVolume_STATUS_PENDING,
+					Status:     ateapipb.ActorVolumeStatus_STATUS_PENDING,
 				},
 			},
 			storageClasses: map[string]*storagev1.StorageClass{
@@ -268,12 +268,12 @@ func TestCreateActorVolumes(t *testing.T) {
 				},
 			},
 			wantErr: false,
-			wantRes: []*ateapipb.ExternalVolume{
+			wantRes: []*ateapipb.ActorVolumeStatus{
 				{
 					VolumeName:      "data-vol",
 					StorageVolumeId: "mock-vol-substrate-actor-uid-123-data-vol",
 					VolumeType:      "mock-standard",
-					Status:          ateapipb.ExternalVolume_STATUS_CREATED,
+					Status:          ateapipb.ActorVolumeStatus_STATUS_CREATED,
 					VolumeContext: map[string]string{
 						"type":                      "pd-ssd",
 						"csi.storage.k8s.io/fstype": "ext4",
@@ -333,14 +333,14 @@ func TestDeleteActorVolumes(t *testing.T) {
 	tests := []struct {
 		name        string
 		actorUID    string
-		volumes     []*ateapipb.ExternalVolume
+		volumes     []*ateapipb.ActorVolumeStatus
 		wantDeleted []string
 		wantErr     bool
 	}{
 		{
 			name:     "uses storage volume ID when present",
 			actorUID: "uid-abc",
-			volumes: []*ateapipb.ExternalVolume{
+			volumes: []*ateapipb.ActorVolumeStatus{
 				{VolumeName: "vol1", StorageVolumeId: "storage-vol-123", VolumeType: "mock"},
 			},
 			wantDeleted: []string{"storage-vol-123"},
@@ -349,8 +349,8 @@ func TestDeleteActorVolumes(t *testing.T) {
 		{
 			name:     "falls back to actorVolumeID when storage volume ID is empty regardless of status",
 			actorUID: "uid-abc",
-			volumes: []*ateapipb.ExternalVolume{
-				{VolumeName: "vol1", StorageVolumeId: "", Status: ateapipb.ExternalVolume_STATUS_CREATED, VolumeType: "mock"},
+			volumes: []*ateapipb.ActorVolumeStatus{
+				{VolumeName: "vol1", StorageVolumeId: "", Status: ateapipb.ActorVolumeStatus_STATUS_CREATED, VolumeType: "mock"},
 			},
 			wantDeleted: []string{"substrate-uid-abc-vol1"},
 			wantErr:     false,
@@ -456,7 +456,7 @@ func TestDetachActorVolumes(t *testing.T) {
 					WorkerAssignment: &ateapipb.WorkerAssignment{
 						Worker: &ateapipb.ObjectRef{Name: "worker-1"},
 					},
-					ActorVolumes: []*ateapipb.ExternalVolume{
+					ActorVolumes: []*ateapipb.ActorVolumeStatus{
 						{VolumeName: "vol1", StorageVolumeId: "storage-vol-1", VolumeType: "mock"},
 						{VolumeName: "vol2", StorageVolumeId: "storage-vol-2", VolumeType: "mock"},
 					},
@@ -492,7 +492,7 @@ func TestDetachActorVolumes(t *testing.T) {
 					WorkerAssignment: &ateapipb.WorkerAssignment{
 						Worker: &ateapipb.ObjectRef{Name: "worker-1"},
 					},
-					ActorVolumes: []*ateapipb.ExternalVolume{
+					ActorVolumes: []*ateapipb.ActorVolumeStatus{
 						{VolumeName: "mounted-vol", StorageVolumeId: "storage-vol-mounted", VolumeType: "mock"},
 						{VolumeName: "unmounted-vol", StorageVolumeId: "storage-vol-unmounted", VolumeType: "mock"},
 					},
@@ -526,7 +526,7 @@ func TestDetachActorVolumes(t *testing.T) {
 					WorkerAssignment: &ateapipb.WorkerAssignment{
 						Worker: &ateapipb.ObjectRef{Name: "worker-1"},
 					},
-					ActorVolumes: []*ateapipb.ExternalVolume{
+					ActorVolumes: []*ateapipb.ActorVolumeStatus{
 						{VolumeName: "vol1", StorageVolumeId: "", VolumeType: "mock"},
 						{VolumeName: "vol2", StorageVolumeId: "storage-vol-2", VolumeType: "mock"},
 					},
@@ -561,7 +561,7 @@ func TestDetachActorVolumes(t *testing.T) {
 					WorkerAssignment: &ateapipb.WorkerAssignment{
 						Worker: &ateapipb.ObjectRef{Name: "worker-1"},
 					},
-					ActorVolumes: []*ateapipb.ExternalVolume{
+					ActorVolumes: []*ateapipb.ActorVolumeStatus{
 						{VolumeName: "vol1", StorageVolumeId: "storage-vol-1", VolumeType: "mock"},
 						{VolumeName: "vol2", StorageVolumeId: "storage-vol-2", VolumeType: "mock"},
 					},
@@ -584,7 +584,7 @@ func TestDetachActorVolumes(t *testing.T) {
 					WorkerAssignment: &ateapipb.WorkerAssignment{
 						Worker: &ateapipb.ObjectRef{Name: "worker-1"},
 					},
-					ActorVolumes: []*ateapipb.ExternalVolume{
+					ActorVolumes: []*ateapipb.ActorVolumeStatus{
 						{VolumeName: "vol1", StorageVolumeId: "storage-vol-1", VolumeType: "mock"},
 					},
 				},
@@ -610,7 +610,7 @@ func TestDetachActorVolumes(t *testing.T) {
 					WorkerAssignment: &ateapipb.WorkerAssignment{
 						Worker: &ateapipb.ObjectRef{Name: "worker-1"},
 					},
-					ActorVolumes: []*ateapipb.ExternalVolume{
+					ActorVolumes: []*ateapipb.ActorVolumeStatus{
 						{VolumeName: "vol1", StorageVolumeId: "storage-vol-1", VolumeType: "mock"},
 						{VolumeName: "vol2", StorageVolumeId: "storage-vol-2", VolumeType: "mock"},
 					},
@@ -639,7 +639,7 @@ func TestDetachActorVolumes(t *testing.T) {
 					WorkerAssignment: &ateapipb.WorkerAssignment{
 						Worker: &ateapipb.ObjectRef{Name: "worker-1"},
 					},
-					ActorVolumes: []*ateapipb.ExternalVolume{
+					ActorVolumes: []*ateapipb.ActorVolumeStatus{
 						{VolumeName: "vol1", StorageVolumeId: "storage-vol-1", VolumeType: "unknown-plugin"},
 					},
 				},
@@ -656,7 +656,7 @@ func TestDetachActorVolumes(t *testing.T) {
 				Metadata: &ateapipb.ResourceMetadata{Name: "actor-1", Atespace: "default"},
 				Status: &ateapipb.ActorStatus{
 					WorkerAssignment: nil,
-					ActorVolumes: []*ateapipb.ExternalVolume{
+					ActorVolumes: []*ateapipb.ActorVolumeStatus{
 						{VolumeName: "vol1", StorageVolumeId: "storage-vol-1", VolumeType: "mock"},
 					},
 				},
@@ -673,7 +673,7 @@ func TestDetachActorVolumes(t *testing.T) {
 					WorkerAssignment: &ateapipb.WorkerAssignment{
 						Worker: &ateapipb.ObjectRef{Name: "nonexistent-worker"},
 					},
-					ActorVolumes: []*ateapipb.ExternalVolume{
+					ActorVolumes: []*ateapipb.ActorVolumeStatus{
 						{VolumeName: "vol1", StorageVolumeId: "storage-vol-1", VolumeType: "mock"},
 					},
 				},
@@ -690,7 +690,7 @@ func TestDetachActorVolumes(t *testing.T) {
 					WorkerAssignment: &ateapipb.WorkerAssignment{
 						Worker: &ateapipb.ObjectRef{Name: "worker-1"},
 					},
-					ActorVolumes: []*ateapipb.ExternalVolume{
+					ActorVolumes: []*ateapipb.ActorVolumeStatus{
 						{VolumeName: "vol1", StorageVolumeId: "storage-vol-1", VolumeType: "mock"},
 					},
 				},
@@ -714,7 +714,7 @@ func TestDetachActorVolumes(t *testing.T) {
 					WorkerAssignment: &ateapipb.WorkerAssignment{
 						Worker: &ateapipb.ObjectRef{Name: "worker-1"},
 					},
-					ActorVolumes: []*ateapipb.ExternalVolume{
+					ActorVolumes: []*ateapipb.ActorVolumeStatus{
 						{VolumeName: "vol1", StorageVolumeId: "storage-vol-1", VolumeType: "mock"},
 					},
 				},
