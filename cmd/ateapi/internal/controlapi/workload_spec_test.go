@@ -421,7 +421,7 @@ func TestAppendExternalVolumes(t *testing.T) {
 			Name:     "actor-123",
 		},
 		Status: &ateapipb.ActorStatus{
-			ActorVolumes: []*ateapipb.ExternalVolume{
+			ActorVolumes: []*ateapipb.ActorVolumeStatus{
 				{
 					VolumeName:      "vol-1",
 					StorageVolumeId: "vol-gce-pd-123",
@@ -462,7 +462,7 @@ func TestAppendExternalVolumes(t *testing.T) {
 			Atespace: "space-abc",
 			Name:     "actor-123",
 		},
-		Status: &ateapipb.ActorStatus{ActorVolumes: []*ateapipb.ExternalVolume{}},
+		Status: &ateapipb.ActorStatus{ActorVolumes: []*ateapipb.ActorVolumeStatus{}},
 	}
 	if err := appendExternalVolumes(&ateletpb.WorkloadSpec{}, template, missingActor); err == nil {
 		t.Errorf("appendExternalVolumes expected error for missing volume, got nil")

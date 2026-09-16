@@ -243,7 +243,7 @@ func (w *ActorWorkflow) ensureVolumesCreated(ctx context.Context, actorRef resou
 
 	pending := false
 	for _, vol := range actor.GetStatus().GetActorVolumes() {
-		if vol.GetStatus() == ateapipb.ExternalVolume_STATUS_PENDING {
+		if vol.GetStatus() == ateapipb.ActorVolumeStatus_STATUS_PENDING {
 			pending = true
 			break
 		}

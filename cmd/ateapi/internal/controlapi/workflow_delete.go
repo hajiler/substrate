@@ -337,7 +337,7 @@ func (w *ActorWorkflow) ensureMarkedDeleting(ctx context.Context, actorRef resou
 	storedActor, err := w.store.UpdateActor(ctx, actorRef, store.PreconditionFrom(actor), func(toUpdate *ateapipb.Actor) error {
 		toUpdate.Status.State = ateapipb.ActorState_ACTOR_STATE_DELETING
 		for _, vol := range toUpdate.GetStatus().GetActorVolumes() {
-			vol.Status = ateapipb.ExternalVolume_STATUS_DELETING
+			vol.Status = ateapipb.ActorVolumeStatus_STATUS_DELETING
 		}
 		return nil
 	})

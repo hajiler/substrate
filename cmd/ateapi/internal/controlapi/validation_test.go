@@ -896,12 +896,12 @@ func TestValidateTrustBundleDataSource(t *testing.T) {
 	}
 }
 
-func validExternalVolume(mutate ...func(*ateapipb.ExternalVolume)) *ateapipb.ExternalVolume {
-	v := &ateapipb.ExternalVolume{
+func validActorVolumeStatus(mutate ...func(*ateapipb.ActorVolumeStatus)) *ateapipb.ActorVolumeStatus {
+	v := &ateapipb.ActorVolumeStatus{
 		VolumeName:      "my-vol",
 		StorageVolumeId: "valid-storage-id",
 		VolumeType:      "mock",
-		Status:          ateapipb.ExternalVolume_STATUS_CREATED,
+		Status:          ateapipb.ActorVolumeStatus_STATUS_CREATED,
 	}
 	for _, m := range mutate {
 		m(v)
@@ -909,101 +909,101 @@ func validExternalVolume(mutate ...func(*ateapipb.ExternalVolume)) *ateapipb.Ext
 	return v
 }
 
-func TestValidateExternalVolume(t *testing.T) {
-	valid := validExternalVolume
+func TestValidateActorVolumeStatus(t *testing.T) {
+	valid := validActorVolumeStatus
 
 	tests := []struct {
 		name string
-		obj  *ateapipb.ExternalVolume
+		obj  *ateapipb.ActorVolumeStatus
 		want field.ErrorList
 	}{{
 		name: "valid external volume",
 		obj:  valid(),
 	}, {
 		name: "missing volume name",
-		obj:  valid(func(v *ateapipb.ExternalVolume) { v.VolumeName = "" }),
+		obj:  valid(func(v *ateapipb.ActorVolumeStatus) { v.VolumeName = "" }),
 		want: field.ErrorList{field.Required(field.NewPath("volume_name"), "")},
 	}, {
 		name: "invalid volume name",
-		obj:  valid(func(v *ateapipb.ExternalVolume) { v.VolumeName = "NOT A VOLUME" }),
+		obj:  valid(func(v *ateapipb.ActorVolumeStatus) { v.VolumeName = "NOT A VOLUME" }),
 		want: field.ErrorList{field.Invalid(field.NewPath("volume_name"), nil, "").WithOrigin("format=k8s-short-name")},
 	}, {
 		name: "valid external volume with empty storage volume id",
-		obj:  valid(func(v *ateapipb.ExternalVolume) { v.StorageVolumeId = "" }),
+		obj:  valid(func(v *ateapipb.ActorVolumeStatus) { v.StorageVolumeId = "" }),
 	}, {
 		name: "invalid storage volume id with null U+0000",
-		obj:  valid(func(v *ateapipb.ExternalVolume) { v.StorageVolumeId = "vol\x00id" }),
+		obj:  valid(func(v *ateapipb.ActorVolumeStatus) { v.StorageVolumeId = "vol\x00id" }),
 		want: field.ErrorList{field.Invalid(field.NewPath("storage_volume_id"), nil, "")},
 	}, {
 		name: "invalid storage volume id with unit separator U+001F",
-		obj:  valid(func(v *ateapipb.ExternalVolume) { v.StorageVolumeId = "vol\x1fid" }),
+		obj:  valid(func(v *ateapipb.ActorVolumeStatus) { v.StorageVolumeId = "vol\x1fid" }),
 		want: field.ErrorList{field.Invalid(field.NewPath("storage_volume_id"), nil, "")},
 	}, {
 		name: "invalid storage volume id with DEL U+007F",
-		obj:  valid(func(v *ateapipb.ExternalVolume) { v.StorageVolumeId = "vol\x7fid" }),
+		obj:  valid(func(v *ateapipb.ActorVolumeStatus) { v.StorageVolumeId = "vol\x7fid" }),
 		want: field.ErrorList{field.Invalid(field.NewPath("storage_volume_id"), nil, "")},
 	}, {
 		name: "invalid storage volume id with C1 control U+0080",
-		obj:  valid(func(v *ateapipb.ExternalVolume) { v.StorageVolumeId = "vol\u0080id" }),
+		obj:  valid(func(v *ateapipb.ActorVolumeStatus) { v.StorageVolumeId = "vol\u0080id" }),
 		want: field.ErrorList{field.Invalid(field.NewPath("storage_volume_id"), nil, "")},
 	}, {
 		name: "invalid storage volume id with C1 control U+009F",
-		obj:  valid(func(v *ateapipb.ExternalVolume) { v.StorageVolumeId = "vol\u009fid" }),
+		obj:  valid(func(v *ateapipb.ActorVolumeStatus) { v.StorageVolumeId = "vol\u009fid" }),
 		want: field.ErrorList{field.Invalid(field.NewPath("storage_volume_id"), nil, "")},
 	}, {
 		name: "storage volume id too long",
-		obj:  valid(func(v *ateapipb.ExternalVolume) { v.StorageVolumeId = strings.Repeat("x", 257) }),
+		obj:  valid(func(v *ateapipb.ActorVolumeStatus) { v.StorageVolumeId = strings.Repeat("x", 257) }),
 		want: field.ErrorList{field.TooLong(field.NewPath("storage_volume_id"), nil, 256).WithOrigin("maxLength")},
 	}, {
 		name: "valid csi volume type",
-		obj:  valid(func(v *ateapipb.ExternalVolume) { v.VolumeType = "pd.csi.storage.gke.io" }),
+		obj:  valid(func(v *ateapipb.ActorVolumeStatus) { v.VolumeType = "pd.csi.storage.gke.io" }),
 	}, {
 		name: "missing volume type",
-		obj:  valid(func(v *ateapipb.ExternalVolume) { v.VolumeType = "" }),
+		obj:  valid(func(v *ateapipb.ActorVolumeStatus) { v.VolumeType = "" }),
 		want: field.ErrorList{field.Required(field.NewPath("volume_type"), "")},
 	}, {
 		name: "invalid volume type with uppercase",
-		obj:  valid(func(v *ateapipb.ExternalVolume) { v.VolumeType = "MockPlugin" }),
+		obj:  valid(func(v *ateapipb.ActorVolumeStatus) { v.VolumeType = "MockPlugin" }),
 		want: field.ErrorList{field.Invalid(field.NewPath("volume_type"), nil, "")},
 	}, {
 		name: "valid volume type with 253 characters",
-		obj:  valid(func(v *ateapipb.ExternalVolume) { v.VolumeType = strings.Repeat("a", 253) }),
+		obj:  valid(func(v *ateapipb.ActorVolumeStatus) { v.VolumeType = strings.Repeat("a", 253) }),
 	}, {
 		name: "invalid volume type exceeding 253 characters",
-		obj:  valid(func(v *ateapipb.ExternalVolume) { v.VolumeType = strings.Repeat("a", 254) }),
+		obj:  valid(func(v *ateapipb.ActorVolumeStatus) { v.VolumeType = strings.Repeat("a", 254) }),
 		want: field.ErrorList{
 			field.Invalid(field.NewPath("volume_type"), nil, ""),
 			field.TooLong(field.NewPath("volume_type"), nil, 253).WithOrigin("maxLength"),
 		},
 	}, {
 		name: "valid volume with substrate.io prefixed volume type",
-		obj:  valid(func(v *ateapipb.ExternalVolume) { v.VolumeType = "substrate.io/mock" }),
+		obj:  valid(func(v *ateapipb.ActorVolumeStatus) { v.VolumeType = "substrate.io/mock" }),
 	}, {
 		name: "invalid volume type with empty plugin after substrate.io prefix",
-		obj:  valid(func(v *ateapipb.ExternalVolume) { v.VolumeType = "substrate.io/" }),
+		obj:  valid(func(v *ateapipb.ActorVolumeStatus) { v.VolumeType = "substrate.io/" }),
 		want: field.ErrorList{field.Invalid(field.NewPath("volume_type"), nil, "")},
 	}, {
 		name: "invalid volume type with invalid plugin name after substrate.io prefix",
-		obj:  valid(func(v *ateapipb.ExternalVolume) { v.VolumeType = "substrate.io/Mock_Plugin" }),
+		obj:  valid(func(v *ateapipb.ActorVolumeStatus) { v.VolumeType = "substrate.io/Mock_Plugin" }),
 		want: field.ErrorList{field.Invalid(field.NewPath("volume_type"), nil, "")},
 	}, {
 		name: "invalid volume type with non-substrate prefix",
-		obj:  valid(func(v *ateapipb.ExternalVolume) { v.VolumeType = "other.io/mock" }),
+		obj:  valid(func(v *ateapipb.ActorVolumeStatus) { v.VolumeType = "other.io/mock" }),
 		want: field.ErrorList{field.Invalid(field.NewPath("volume_type"), nil, "")},
 	}, {
 		name: "negative status",
-		obj:  valid(func(v *ateapipb.ExternalVolume) { v.Status = ateapipb.ExternalVolume_Status(-1) }),
+		obj:  valid(func(v *ateapipb.ActorVolumeStatus) { v.Status = ateapipb.ActorVolumeStatus_Status(-1) }),
 		want: field.ErrorList{field.Invalid(field.NewPath("status"), nil, "").WithOrigin("minimum")},
 	}, {
 		name: "status outside the enum",
-		obj:  valid(func(v *ateapipb.ExternalVolume) { v.Status = ateapipb.ExternalVolume_Status(4) }),
+		obj:  valid(func(v *ateapipb.ActorVolumeStatus) { v.Status = ateapipb.ActorVolumeStatus_Status(4) }),
 		want: field.ErrorList{field.Invalid(field.NewPath("status"), nil, "").WithOrigin("maximum")},
 	}, {
 		name: "storage volume id at the bound",
-		obj:  valid(func(v *ateapipb.ExternalVolume) { v.StorageVolumeId = strings.Repeat("x", 256) }),
+		obj:  valid(func(v *ateapipb.ActorVolumeStatus) { v.StorageVolumeId = strings.Repeat("x", 256) }),
 	}, {
 		name: "too many volume_context entries",
-		obj: valid(func(v *ateapipb.ExternalVolume) {
+		obj: valid(func(v *ateapipb.ActorVolumeStatus) {
 			ctxMap := make(map[string]string, 33)
 			for i := 0; i < 33; i++ {
 				ctxMap[fmt.Sprintf("key-%d", i)] = "v"
@@ -1013,11 +1013,13 @@ func TestValidateExternalVolume(t *testing.T) {
 		want: field.ErrorList{field.TooMany(field.NewPath("volume_context"), 33, 32).WithOrigin("maxProperties")},
 	}, {
 		name: "volume_context key too long",
-		obj:  valid(func(v *ateapipb.ExternalVolume) { v.VolumeContext = map[string]string{strings.Repeat("k", 129): "v"} }),
+		obj: valid(func(v *ateapipb.ActorVolumeStatus) {
+			v.VolumeContext = map[string]string{strings.Repeat("k", 129): "v"}
+		}),
 		want: field.ErrorList{field.TooLong(field.NewPath("volume_context"), nil, 128).WithOrigin("maxLength")},
 	}, {
 		name: "volume_context value too long",
-		obj: valid(func(v *ateapipb.ExternalVolume) {
+		obj: valid(func(v *ateapipb.ActorVolumeStatus) {
 			v.VolumeContext = map[string]string{"attachment": strings.Repeat("v", 257)}
 		}),
 		want: field.ErrorList{field.TooLong(field.NewPath("volume_context").Key("attachment"), nil, 256).WithOrigin("maxLength")},
@@ -1025,18 +1027,18 @@ func TestValidateExternalVolume(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			op := operation.Operation{Type: operation.Create}
-			assertValidateErr(t, Validate_ExternalVolume(context.Background(), op, nil, tt.obj, nil), tt.want)
+			assertValidateErr(t, Validate_ActorVolumeStatus(context.Background(), op, nil, tt.obj, nil), tt.want)
 		})
 	}
 }
 
-func TestValidateExternalVolume_Update(t *testing.T) {
-	valid := validExternalVolume
+func TestValidateActorVolumeStatus_Update(t *testing.T) {
+	valid := validActorVolumeStatus
 
 	tests := []struct {
 		name   string
-		oldObj *ateapipb.ExternalVolume
-		newObj *ateapipb.ExternalVolume
+		oldObj *ateapipb.ActorVolumeStatus
+		newObj *ateapipb.ActorVolumeStatus
 		want   field.ErrorList
 	}{{
 		name:   "unchanged volume is valid",
@@ -1044,43 +1046,43 @@ func TestValidateExternalVolume_Update(t *testing.T) {
 		newObj: valid(),
 	}, {
 		name:   "volume_name changed is invalid",
-		oldObj: valid(func(v *ateapipb.ExternalVolume) { v.VolumeName = "vol1" }),
-		newObj: valid(func(v *ateapipb.ExternalVolume) { v.VolumeName = "vol2" }),
+		oldObj: valid(func(v *ateapipb.ActorVolumeStatus) { v.VolumeName = "vol1" }),
+		newObj: valid(func(v *ateapipb.ActorVolumeStatus) { v.VolumeName = "vol2" }),
 		want:   field.ErrorList{field.Invalid(field.NewPath("volume_name"), nil, "").WithOrigin("update")},
 	}, {
 		name:   "storage_volume_id transition from empty to non-empty is valid",
-		oldObj: valid(func(v *ateapipb.ExternalVolume) { v.StorageVolumeId = "" }),
-		newObj: valid(func(v *ateapipb.ExternalVolume) { v.StorageVolumeId = "vol-id-1" }),
+		oldObj: valid(func(v *ateapipb.ActorVolumeStatus) { v.StorageVolumeId = "" }),
+		newObj: valid(func(v *ateapipb.ActorVolumeStatus) { v.StorageVolumeId = "vol-id-1" }),
 	}, {
 		name:   "storage_volume_id changed once set is invalid",
-		oldObj: valid(func(v *ateapipb.ExternalVolume) { v.StorageVolumeId = "vol-id-1" }),
-		newObj: valid(func(v *ateapipb.ExternalVolume) { v.StorageVolumeId = "vol-id-2" }),
+		oldObj: valid(func(v *ateapipb.ActorVolumeStatus) { v.StorageVolumeId = "vol-id-1" }),
+		newObj: valid(func(v *ateapipb.ActorVolumeStatus) { v.StorageVolumeId = "vol-id-2" }),
 		want:   field.ErrorList{field.Invalid(field.NewPath("storage_volume_id"), nil, "").WithOrigin("update")},
 	}, {
 		name:   "storage_volume_id unset once set is invalid",
-		oldObj: valid(func(v *ateapipb.ExternalVolume) { v.StorageVolumeId = "vol-id-1" }),
-		newObj: valid(func(v *ateapipb.ExternalVolume) { v.StorageVolumeId = "" }),
+		oldObj: valid(func(v *ateapipb.ActorVolumeStatus) { v.StorageVolumeId = "vol-id-1" }),
+		newObj: valid(func(v *ateapipb.ActorVolumeStatus) { v.StorageVolumeId = "" }),
 		want:   field.ErrorList{field.Invalid(field.NewPath("storage_volume_id"), nil, "").WithOrigin("update")},
 	}, {
 		name:   "volume_type changed is invalid",
-		oldObj: valid(func(v *ateapipb.ExternalVolume) { v.VolumeType = "mock" }),
-		newObj: valid(func(v *ateapipb.ExternalVolume) { v.VolumeType = "pd.csi.storage.gke.io" }),
+		oldObj: valid(func(v *ateapipb.ActorVolumeStatus) { v.VolumeType = "mock" }),
+		newObj: valid(func(v *ateapipb.ActorVolumeStatus) { v.VolumeType = "pd.csi.storage.gke.io" }),
 		want:   field.ErrorList{field.Invalid(field.NewPath("volume_type"), nil, "").WithOrigin("update")},
 	}, {
 		name: "status and volume_context changed is valid",
-		oldObj: valid(func(v *ateapipb.ExternalVolume) {
-			v.Status = ateapipb.ExternalVolume_STATUS_PENDING
+		oldObj: valid(func(v *ateapipb.ActorVolumeStatus) {
+			v.Status = ateapipb.ActorVolumeStatus_STATUS_PENDING
 			v.VolumeContext = nil
 		}),
-		newObj: valid(func(v *ateapipb.ExternalVolume) {
-			v.Status = ateapipb.ExternalVolume_STATUS_CREATED
+		newObj: valid(func(v *ateapipb.ActorVolumeStatus) {
+			v.Status = ateapipb.ActorVolumeStatus_STATUS_CREATED
 			v.VolumeContext = map[string]string{"foo": "bar"}
 		}),
 	}}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			op := operation.Operation{Type: operation.Update}
-			assertValidateErr(t, Validate_ExternalVolume(context.Background(), op, nil, tt.newObj, tt.oldObj), tt.want)
+			assertValidateErr(t, Validate_ActorVolumeStatus(context.Background(), op, nil, tt.newObj, tt.oldObj), tt.want)
 		})
 	}
 }
