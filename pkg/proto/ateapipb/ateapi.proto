@@ -709,6 +709,169 @@ message Tag {
   ObjectRef source_actor = 4;
 }
 
+// ReclaimPolicy decides what happens to the underlying storage when the
+// resource holding it goes away.
+enum ReclaimPolicy {
+  RECLAIM_POLICY_UNSPECIFIED = 0;
+  // Delete the volume from the storage system once nothing references it.
+  RECLAIM_POLICY_DELETE = 1;
+  // Leave the volume in the storage system once nothing references it.
+  RECLAIM_POLICY_RETAIN = 2;
+}
+
+// ExternalVolumeState is where an ExternalVolume is in its own lifecycle,
+// independent of whatever actors are using it.
+enum ExternalVolumeState {
+  EXTERNAL_VOLUME_STATE_UNSPECIFIED = 0;
+  // The name is reserved but no volume handle is known yet: either creation is
+  // still running, or the attempt that reserved the name died. A pending volume
+  // cannot be referenced by an actor.
+  EXTERNAL_VOLUME_STATE_PENDING = 1;
+  // The volume has a handle and can be referenced.
+  EXTERNAL_VOLUME_STATE_READY = 2;
+}
+
+// ExternalVolume is an atespace-scoped record of a CSI volume whose lifetime is
+// independent of any actor. Identity is (atespace, name); the storage-level ID
+// is derived from the record's own UID rather than from its name, because both
+// atespace and name are DNS labels that may themselves contain hyphens.
+//
+// A volume is only ever shared between actors in its own atespace. There is no
+// distinction here between a volume Substrate provisioned and one an admin
+// registered against a disk that already existed: both describe one CSI volume
+// and differ only in whether the handle was known at create time.
+//
+// The per-actor view of a mounted volume lives on ActorStatus.actor_volumes
+// (ActorVolumeStatus); this message is about the volume itself.
+message ExternalVolume {
+  // Common resource metadata: atespace, name, uid, version, timestamps.
+  //
+  // +k8s:required
+  // +k8s:subfield(atespace)=+k8s:required
+  ResourceMetadata metadata = 1;
+
+  // reclaim_policy decides what happens to the volume once the last reference
+  // is released. Defaulted at create - from storage_class_name's StorageClass
+  // when one is named, RETAIN otherwise - and mutable thereafter, so that "I am
+  // about to delete this actor, keep the data" is a one-field update rather
+  // than a volume recreate.
+  //
+  // +k8s:optional
+  // +k8s:minimum=1
+  // +k8s:maximum=2 # keep this in sync with the ReclaimPolicy enum
+  // +k8s:mutable
+  ReclaimPolicy reclaim_policy = 2;
+
+  // storage_class_name names the cluster-scoped Kubernetes StorageClass this
+  // volume belongs to. When volume_id is empty it is what the volume is
+  // provisioned from: its provisioner becomes volume_type and its parameters
+  // are passed to the storage system. When volume_id is supplied it is recorded
+  // as documentation of what the existing disk is.
+  //
+  // Capacity is an argument to the create call rather than a field here:
+  // resizing is not supported, so there is nothing for the record to track.
+  //
+  // +k8s:optional
+  // +k8s:format=k8s-long-name
+  // +k8s:update=NoModify
+  // +k8s:update=NoUnset
+  string storage_class_name = 3;
+
+  // volume_id is the globally unique volume ID from the storage system.
+  //
+  // Supply it to register a disk that already exists; CSI has no name->volumeID
+  // lookup, so this is the only way to name one, exactly as a statically
+  // provisioned PersistentVolume carries spec.csi.volumeHandle. Leave it empty
+  // and the control plane stamps it once provisioning completes. Either way it
+  // is set exactly once and immutable afterwards, and either way it is the
+  // field the rest of the system reads.
+  //
+  // Its format is the storage system's own, so it is only bounded and checked
+  // for control characters (U+0000-U+0008, U+000B, U+000C, U+000E-U+001F,
+  // U+007F-U+009F). The CSI spec caps IDs at 128 bytes but does not require it,
+  // so allow some slack.
+  //
+  // +k8s:optional
+  // +k8s:maxLength=256
+  // +k8s:update=NoModify
+  // +k8s:update=NoUnset
+  // +k8s:customValidation # no control characters
+  string volume_id = 4;
+
+  // volume_type is the internal volume plugin name or CSI driver name.
+  // Required alongside a supplied volume_id when no StorageClass is named,
+  // since there is then nothing to read it from; otherwise taken from the
+  // class's provisioner. Must be a DNS subdomain, optionally prefixed with
+  // "substrate.io/" (per the CSI spec's driver-name syntax).
+  //
+  // +k8s:optional
+  // +k8s:maxLength=253
+  // +k8s:update=NoModify
+  // +k8s:update=NoUnset
+  // +k8s:customValidation
+  string volume_type = 5;
+
+  // volume_context is driver metadata needed by the node plugin for mounting.
+  // Supplied alongside an existing volume_id, or returned by the storage system
+  // at creation. Keys and values are the driver's own, so they are only
+  // bounded, not validated.
+  //
+  // There is deliberately no publish_context here: attachment metadata is
+  // per-node, and a shared volume may be attached to several nodes at once.
+  //
+  // +k8s:optional
+  // +k8s:maxProperties=32
+  // +k8s:eachKey=+k8s:maxLength=128
+  // +k8s:eachVal=+k8s:maxLength=256
+  map<string, string> volume_context = 6;
+
+  // status is set by the control plane; it is ignored on write.
+  //
+  // +k8s:optional
+  ExternalVolumeStatus status = 7;
+}
+
+// ExternalVolumeStatus is the part of an ExternalVolume the control plane owns
+// outright. It is ignored on input.
+message ExternalVolumeStatus {
+  // state is where the volume is in its lifecycle.
+  //
+  // +k8s:optional
+  // +k8s:minimum=1
+  // +k8s:maximum=2 # keep this in sync with the ExternalVolumeState enum
+  ExternalVolumeState state = 1;
+
+  // refs is the set of actors currently holding the volume. References are
+  // taken and released by the resume, pause, suspend and delete workflows,
+  // never by the user. A volume with no references is idle, not free to
+  // delete: whether the storage survives is reclaim_policy's decision.
+  //
+  // +k8s:optional
+  // +k8s:maxItems=32
+  // +k8s:listType=map
+  // +k8s:listMapKey=actor_uid
+  repeated ActorRef refs = 2;
+}
+
+// ActorRef is one actor's hold on an external volume, held for as long as the
+// actor is resumed. A paused or suspended actor does not hold a reference.
+message ActorRef {
+  // actor_uid identifies the holder. The UID rather than the name, so that an
+  // actor deleted and recreated under the same name does not inherit the old
+  // one's reference.
+  //
+  // +k8s:required
+  // +k8s:maxLength=253
+  string actor_uid = 1;
+
+  // actor_name is the holder's name, carried so that a human reading the
+  // volume can tell who has it without a second lookup.
+  //
+  // +k8s:required
+  // +k8s:format=k8s-short-name
+  string actor_name = 2;
+}
+
 // Atespace is the isolation boundary an Actor is created into. Global-scoped:
 // metadata.atespace is always empty; the atespace's identity is metadata.name.
 message Atespace {

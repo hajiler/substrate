@@ -154,6 +154,52 @@ type Interface interface {
 	// Deletes and returns a tag.
 	DeleteTag(ctx context.Context, tagRef resources.TagRef) (*ateapipb.Tag, error)
 
+	// CreateExternalVolume reserves a name for an external volume.
+	//
+	// The returned record is pending: it holds no volume handle yet, because
+	// provisioning runs after the name is taken. Returns ErrAlreadyExists if
+	// the name is taken — including by the caller's own unfinished attempt,
+	// which it can then read back and resume — or ErrFailedPrecondition if the
+	// volume's atespace does not exist.
+	CreateExternalVolume(ctx context.Context, volume *ateapipb.ExternalVolume) (*ateapipb.ExternalVolume, error)
+
+	// Fetches an atespace-owned external volume by reference. Returns
+	// ErrNotFound if missing.
+	GetExternalVolume(ctx context.Context, volumeRef resources.ExternalVolumeRef) (*ateapipb.ExternalVolume, error)
+
+	// Lists external volumes in one atespace, or all atespaces when empty.
+	ListExternalVolumes(ctx context.Context, atespace string, opts ListOptions) (ListResponse[*ateapipb.ExternalVolume], error)
+
+	// UpdateExternalVolume performs a transactional read-modify-write on the
+	// volume addressed by volumeRef, and returns the stored ExternalVolume with
+	// advanced metadata (version, update_time).
+	//
+	// precondition guards the write against landing on unexpected state: it is
+	// checked against the stored volume before mutate runs. Both the uid and
+	// version guards are required. This is also how a reference is claimed: two
+	// actors racing to take the last free slot both read the same version, and
+	// the loser gets ErrVersionConflict rather than a lost write.
+	//
+	// mutate receives the stored volume and edits it in place. The mutated
+	// volume is written iff mutate returns nil. mutate may run more than once,
+	// because the store retries when a concurrent write invalidates the
+	// transaction.
+	//
+	// Returns ErrPreconditionRequired if the precondition omits either guard,
+	// ErrNotFound if missing, ErrUIDConflict or ErrVersionConflict if the
+	// precondition no longer holds, ErrVersionConflict if the retry budget is
+	// exhausted, ErrImmutableField if the mutated volume changed a field that
+	// is immutable for its lifetime, or the mutate's error verbatim otherwise.
+	//
+	// storage_class_name, volume_id, volume_type and volume_context are all
+	// set-once: a volume never moves to different storage.
+	UpdateExternalVolume(ctx context.Context, volumeRef resources.ExternalVolumeRef, precondition Precondition, mutate func(toUpdate *ateapipb.ExternalVolume) error) (*ateapipb.ExternalVolume, error)
+
+	// Deletes and returns an external volume. Deleting the record does not
+	// touch the storage system; reclaiming the volume itself is the caller's
+	// job, and what it decides is reclaim_policy's business.
+	DeleteExternalVolume(ctx context.Context, volumeRef resources.ExternalVolumeRef) (*ateapipb.ExternalVolume, error)
+
 	// Stores a new atespace and returns the stored resource with server-assigned
 	// metadata (uid, version, timestamps). The input is not mutated. Returns
 	// ErrAlreadyExists if the name is taken.

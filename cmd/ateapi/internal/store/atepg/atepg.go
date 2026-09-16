@@ -26,6 +26,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"time"
 
 	"github.com/agent-substrate/substrate/cmd/ateapi/internal/store"
@@ -1245,6 +1246,273 @@ func (p *Persistence) DeleteTag(ctx context.Context, tagRef resources.TagRef) (*
 		return nil, fmt.Errorf("unmarshaling deleted tag: %w", err)
 	}
 	return tag, nil
+}
+
+// --- External volumes ---
+
+func (p *Persistence) GetExternalVolume(ctx context.Context, volumeRef resources.ExternalVolumeRef) (*ateapipb.ExternalVolume, error) {
+	atespace, name := volumeRef.Atespace, volumeRef.Name
+	var protoBytes []byte
+	if err := p.pool.QueryRow(ctx, `
+		SELECT proto FROM external_volumes
+		WHERE atespace = $1 AND name = $2`, atespace, name).Scan(&protoBytes); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, store.ErrNotFound
+		}
+		return nil, fmt.Errorf("getting external volume %s/%s: %w", atespace, name, err)
+	}
+	volume := &ateapipb.ExternalVolume{}
+	if err := unmarshalStored(protoBytes, volume); err != nil {
+		return nil, fmt.Errorf("unmarshaling external volume: %w", err)
+	}
+	return volume, nil
+}
+
+func (p *Persistence) ListExternalVolumes(ctx context.Context, atespace string, opts store.ListOptions) (store.ListResponse[*ateapipb.ExternalVolume], error) {
+	opts, err := store.NormalizeListOptions(opts)
+	if err != nil {
+		return store.ListResponse[*ateapipb.ExternalVolume]{}, err
+	}
+	var items []*ateapipb.ExternalVolume
+	var nextToken string
+	if atespace != "" {
+		items, nextToken, err = p.listExternalVolumesScoped(ctx, atespace, opts.PageSize, opts.PageToken)
+	} else {
+		items, nextToken, err = p.listExternalVolumesGlobal(ctx, opts.PageSize, opts.PageToken)
+	}
+	if err != nil {
+		return store.ListResponse[*ateapipb.ExternalVolume]{}, err
+	}
+	return store.ListResponse[*ateapipb.ExternalVolume]{Items: items, NextPageToken: nextToken}, nil
+}
+
+func (p *Persistence) listExternalVolumesScoped(ctx context.Context, atespace string, pageSize int32, pageTokenStr string) ([]*ateapipb.ExternalVolume, string, error) {
+	token, err := decodePageToken(pageTokenStr, kindExternalVol, atespace, 1)
+	if err != nil {
+		return nil, "", err
+	}
+	var last *string
+	if len(token.Last) > 0 {
+		last = &token.Last[0]
+	}
+	rows, err := p.pool.Query(ctx, `
+		SELECT name, proto FROM external_volumes
+		WHERE atespace = $1 AND ($2::text IS NULL OR name > $2)
+		ORDER BY name
+		LIMIT $3`, atespace, last, int64(pageSize)+1)
+	if err != nil {
+		return nil, "", fmt.Errorf("listing external volumes in %q: %w", atespace, err)
+	}
+	defer rows.Close()
+
+	var names []string
+	var result []*ateapipb.ExternalVolume
+	for rows.Next() {
+		var name string
+		var protoBytes []byte
+		if err := rows.Scan(&name, &protoBytes); err != nil {
+			return nil, "", fmt.Errorf("scanning external volume row: %w", err)
+		}
+		volume := &ateapipb.ExternalVolume{}
+		if err := unmarshalStored(protoBytes, volume); err != nil {
+			return nil, "", fmt.Errorf("unmarshaling external volume: %w", err)
+		}
+		result = append(result, volume)
+		names = append(names, name)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", fmt.Errorf("listing external volumes in %q: %w", atespace, err)
+	}
+	var nextToken string
+	if len(result) > int(pageSize) {
+		result = result[:pageSize]
+		nextToken = encodePageToken(kindExternalVol, atespace, []string{names[pageSize-1]})
+	}
+	return result, nextToken, nil
+}
+
+func (p *Persistence) listExternalVolumesGlobal(ctx context.Context, pageSize int32, pageTokenStr string) ([]*ateapipb.ExternalVolume, string, error) {
+	token, err := decodePageToken(pageTokenStr, kindExternalVol, "", 2)
+	if err != nil {
+		return nil, "", err
+	}
+	var lastAtespace, lastName *string
+	if len(token.Last) == 2 {
+		lastAtespace, lastName = &token.Last[0], &token.Last[1]
+	}
+	rows, err := p.pool.Query(ctx, `
+		SELECT atespace, name, proto FROM external_volumes
+		WHERE $1::text IS NULL OR (atespace, name) > ($1, $2)
+		ORDER BY atespace, name
+		LIMIT $3`, lastAtespace, lastName, int64(pageSize)+1)
+	if err != nil {
+		return nil, "", fmt.Errorf("listing external volumes: %w", err)
+	}
+	defer rows.Close()
+
+	type key struct{ atespace, name string }
+	var keys []key
+	var result []*ateapipb.ExternalVolume
+	for rows.Next() {
+		var k key
+		var protoBytes []byte
+		if err := rows.Scan(&k.atespace, &k.name, &protoBytes); err != nil {
+			return nil, "", fmt.Errorf("scanning external volume row: %w", err)
+		}
+		volume := &ateapipb.ExternalVolume{}
+		if err := unmarshalStored(protoBytes, volume); err != nil {
+			return nil, "", fmt.Errorf("unmarshaling external volume: %w", err)
+		}
+		result = append(result, volume)
+		keys = append(keys, k)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", fmt.Errorf("listing external volumes: %w", err)
+	}
+	var nextToken string
+	if len(result) > int(pageSize) {
+		result = result[:pageSize]
+		last := keys[pageSize-1]
+		nextToken = encodePageToken(kindExternalVol, "", []string{last.atespace, last.name})
+	}
+	return result, nextToken, nil
+}
+
+func (p *Persistence) CreateExternalVolume(ctx context.Context, volume *ateapipb.ExternalVolume) (*ateapipb.ExternalVolume, error) {
+	atespace := volume.GetMetadata().GetAtespace()
+	name := volume.GetMetadata().GetName()
+	dbVolume := proto.CloneOf(volume)
+	dbVolume.Metadata = newCreateMetadata(atespace, name)
+	protoBytes, err := proto.Marshal(dbVolume)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling external volume: %w", err)
+	}
+
+	_, err = p.pool.Exec(ctx, `
+		INSERT INTO external_volumes (atespace, name, uid, version, proto)
+		VALUES ($1, $2, $3, $4, $5)`, atespace, name,
+		dbVolume.GetMetadata().GetUid(), dbVolume.GetMetadata().GetVersion(), protoBytes)
+	if err != nil {
+		if isUniqueViolation(err) {
+			return nil, store.ErrAlreadyExists
+		}
+		if isForeignKeyViolation(err) {
+			switch pgErrConstraint(err) {
+			case "external_volumes_atespace_fk":
+				return nil, store.ErrFailedPrecondition
+			default:
+				return nil, fmt.Errorf("inserting external volume %s/%s violated unknown foreign key %q: %w", atespace, name, pgErrConstraint(err), err)
+			}
+		}
+		return nil, fmt.Errorf("inserting external volume %s/%s: %w", atespace, name, err)
+	}
+	return dbVolume, nil
+}
+
+// validateUpdateExternalVolumeMutation rejects a mutation that moved the record
+// to different storage. Everything describing the volume itself is set-once:
+// the handle is stamped when provisioning completes, or supplied at create for
+// a volume that already existed, and repointing it afterwards would silently
+// hand every referencing actor a different disk. Only reclaim_policy and the
+// reference set are meant to change.
+func validateUpdateExternalVolumeMutation(storedVolume, mutatedVolume *ateapipb.ExternalVolume) error {
+	if stored, mutated := storedVolume.GetMetadata().GetAtespace(), mutatedVolume.GetMetadata().GetAtespace(); stored != mutated {
+		return fmt.Errorf("metadata.atespace is immutable: mutation changed it from %q to %q", stored, mutated)
+	}
+	if stored, mutated := storedVolume.GetMetadata().GetName(), mutatedVolume.GetMetadata().GetName(); stored != mutated {
+		return fmt.Errorf("metadata.name is immutable: mutation changed it from %q to %q", stored, mutated)
+	}
+	if stored, mutated := storedVolume.GetStorageClassName(), mutatedVolume.GetStorageClassName(); stored != "" && stored != mutated {
+		return fmt.Errorf("storage_class_name is immutable once set: mutation changed it from %q to %q", stored, mutated)
+	}
+	if stored, mutated := storedVolume.GetVolumeId(), mutatedVolume.GetVolumeId(); stored != "" && stored != mutated {
+		return fmt.Errorf("volume_id is immutable once set: mutation changed it from %q to %q", stored, mutated)
+	}
+	if stored, mutated := storedVolume.GetVolumeType(), mutatedVolume.GetVolumeType(); stored != "" && stored != mutated {
+		return fmt.Errorf("volume_type is immutable once set: mutation changed it from %q to %q", stored, mutated)
+	}
+	if stored, mutated := storedVolume.GetVolumeContext(), mutatedVolume.GetVolumeContext(); len(stored) > 0 && !maps.Equal(stored, mutated) {
+		return fmt.Errorf("volume_context is immutable once set: mutation changed it from %v to %v", stored, mutated)
+	}
+	return nil
+}
+
+func (p *Persistence) UpdateExternalVolume(ctx context.Context, volumeRef resources.ExternalVolumeRef, precondition store.Precondition, mutate func(*ateapipb.ExternalVolume) error) (*ateapipb.ExternalVolume, error) {
+	if err := precondition.Validate(); err != nil {
+		return nil, err
+	}
+	atespace, name := volumeRef.Atespace, volumeRef.Name
+	var currentUID string
+	var currentVersion int64
+	var currentBytes []byte
+	if err := p.pool.QueryRow(ctx, `
+			SELECT uid, version, proto FROM external_volumes
+			WHERE atespace = $1 AND name = $2`, atespace, name).Scan(&currentUID, &currentVersion, &currentBytes); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, store.ErrNotFound
+		}
+		return nil, fmt.Errorf("getting external volume %s/%s for update: %w", atespace, name, err)
+	}
+
+	dbVolume := &ateapipb.ExternalVolume{}
+	if err := unmarshalStored(currentBytes, dbVolume); err != nil {
+		return nil, fmt.Errorf("unmarshaling external volume: %w", err)
+	}
+	if err := validateProtoMetadataMatchesColumns(fmt.Sprintf("external volume %s/%s", atespace, name), dbVolume.GetMetadata(), currentUID, currentVersion); err != nil {
+		return nil, err
+	}
+	if err := precondition.Check(dbVolume.GetMetadata()); err != nil {
+		return nil, err
+	}
+	volumeBeforeMutation := proto.CloneOf(dbVolume)
+	if err := mutate(dbVolume); err != nil {
+		return nil, err
+	}
+	if err := validateUpdateExternalVolumeMutation(volumeBeforeMutation, dbVolume); err != nil {
+		return nil, fmt.Errorf("%w: %w", store.ErrImmutableField, err)
+	}
+	// Stored metadata is authoritative; discard any metadata edits made by the
+	// closure and derive the next revision from the state this attempt read.
+	dbVolume.Metadata = newUpdateMetadata(volumeBeforeMutation.GetMetadata())
+
+	updatedBytes, err := proto.Marshal(dbVolume)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling external volume: %w", err)
+	}
+	commandTag, err := p.pool.Exec(ctx, `
+			UPDATE external_volumes
+			SET version = $1, proto = $2
+			WHERE atespace = $3 AND name = $4 AND uid = $5 AND version = $6`,
+		dbVolume.GetMetadata().GetVersion(), updatedBytes, atespace, name, currentUID, currentVersion)
+	if err != nil {
+		return nil, fmt.Errorf("updating external volume %s/%s: %w", atespace, name, err)
+	}
+	if commandTag.RowsAffected() == 0 {
+		return nil, store.ErrVersionConflict
+	}
+	if commandTag.RowsAffected() != 1 {
+		return nil, fmt.Errorf("updating external volume %s/%s affected %d rows, want 1", atespace, name, commandTag.RowsAffected())
+	}
+	return dbVolume, nil
+}
+
+func (p *Persistence) DeleteExternalVolume(ctx context.Context, volumeRef resources.ExternalVolumeRef) (*ateapipb.ExternalVolume, error) {
+	atespace, name := volumeRef.Atespace, volumeRef.Name
+	var protoBytes []byte
+	if err := p.pool.QueryRow(ctx, `
+		DELETE FROM external_volumes
+		WHERE atespace = $1 AND name = $2
+		RETURNING proto`, atespace, name).Scan(&protoBytes); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, store.ErrNotFound
+		}
+		return nil, fmt.Errorf("deleting external volume %s/%s: %w", atespace, name, err)
+	}
+	volume := &ateapipb.ExternalVolume{}
+	if err := unmarshalStored(protoBytes, volume); err != nil {
+		return nil, fmt.Errorf("unmarshaling deleted external volume: %w", err)
+	}
+	return volume, nil
 }
 
 // --- Workers ---
