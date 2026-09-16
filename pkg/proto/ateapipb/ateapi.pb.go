@@ -2323,6 +2323,14 @@ func (x *ExternalVolumeStatus) GetRefs() []*ActorRef {
 
 // ActorRef is one actor's hold on an external volume, held for as long as the
 // actor is resumed. A paused or suspended actor does not hold a reference.
+//
+// A held volume may not be taken by a second actor: resuming an actor that
+// borrows it fails until the holder gives it back. That exclusion is what makes
+// sharing safe without access modes or read-only mounts, since nothing below
+// the control plane would stop two actors from writing at once. The reference
+// set is a list rather than a single field because concurrent holders arrive
+// with access modes, which is when the rule is relaxed per volume rather than
+// dropped.
 type ActorRef struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// actor_uid identifies the holder. The UID rather than the name, so that an

@@ -82,8 +82,17 @@ func claimExternalVolumes(ctx context.Context, st externalVolumeRefStore, actor 
 	return volumes, nil
 }
 
+// errExternalVolumeHeld reports that another actor took the volume between the
+// read and the write. It never escapes claimExternalVolume, which turns it into
+// the same refusal the pre-read check makes.
+var errExternalVolumeHeld = errors.New("external volume is already held")
+
 // claimExternalVolume adds actorRef to one ExternalVolume's reference set and
 // returns the volume, whose handle the caller records on the actor.
+//
+// A volume another actor already holds is refused. Sharing is sequential: the
+// holder has to give the volume back before the next actor can take it, and
+// nothing below the control plane would keep two actors from writing at once.
 func claimExternalVolume(ctx context.Context, st externalVolumeRefStore, volumeRef resources.ExternalVolumeRef, actorRef *ateapipb.ActorRef) (*ateapipb.ExternalVolume, error) {
 	volume, err := st.GetExternalVolume(ctx, volumeRef)
 	if err != nil {
@@ -99,15 +108,27 @@ func claimExternalVolume(ctx context.Context, st externalVolumeRefStore, volumeR
 	if hasActorRef(volume, actorRef.GetActorUid()) {
 		return volume, nil
 	}
+	if holder := volume.GetStatus().GetRefs(); len(holder) > 0 {
+		return nil, externalVolumeHeldError(volumeRef, holder)
+	}
 
 	claimed, err := st.UpdateExternalVolume(ctx, volumeRef, store.PreconditionFrom(volume), func(toUpdate *ateapipb.ExternalVolume) error {
 		if hasActorRef(toUpdate, actorRef.GetActorUid()) {
 			return nil
 		}
+		// Belt and braces: the precondition already rejects a claim that raced
+		// this one, so reaching here would mean the volume was read again
+		// without it.
+		if len(toUpdate.GetStatus().GetRefs()) > 0 {
+			return errExternalVolumeHeld
+		}
 		toUpdate.Status.Refs = append(toUpdate.Status.Refs, actorRef)
 		return nil
 	})
 	if err != nil {
+		if errors.Is(err, errExternalVolumeHeld) {
+			return nil, externalVolumeHeldError(volumeRef, nil)
+		}
 		if errors.Is(err, store.ErrVersionConflict) || errors.Is(err, store.ErrUIDConflict) {
 			return nil, status.Error(codes.Aborted, "concurrent update conflict, please retry")
 		}
@@ -117,6 +138,18 @@ func claimExternalVolume(ctx context.Context, st externalVolumeRefStore, volumeR
 		return nil, fmt.Errorf("while claiming external volume %s: %w", volumeRef, err)
 	}
 	return claimed, nil
+}
+
+// externalVolumeHeldError names the actor standing in the way, which is the one
+// thing the caller has to act on: that actor must be paused or suspended before
+// this one can resume.
+func externalVolumeHeldError(volumeRef resources.ExternalVolumeRef, refs []*ateapipb.ActorRef) error {
+	if len(refs) == 0 {
+		return status.Errorf(codes.FailedPrecondition, "ExternalVolume %s is already held by another actor", volumeRef)
+	}
+	return status.Errorf(codes.FailedPrecondition,
+		"ExternalVolume %s is already held by actor %q; suspend or pause it before resuming another actor that borrows the volume",
+		volumeRef, refs[0].GetActorName())
 }
 
 // releaseExternalVolumes drops the actor's reference on every ExternalVolume it
