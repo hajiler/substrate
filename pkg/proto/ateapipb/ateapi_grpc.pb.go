@@ -51,6 +51,11 @@ const (
 	Control_ListTags_FullMethodName                   = "/ateapi.Control/ListTags"
 	Control_UpdateTag_FullMethodName                  = "/ateapi.Control/UpdateTag"
 	Control_DeleteTag_FullMethodName                  = "/ateapi.Control/DeleteTag"
+	Control_CreateExternalVolume_FullMethodName       = "/ateapi.Control/CreateExternalVolume"
+	Control_GetExternalVolume_FullMethodName          = "/ateapi.Control/GetExternalVolume"
+	Control_ListExternalVolumes_FullMethodName        = "/ateapi.Control/ListExternalVolumes"
+	Control_UpdateExternalVolume_FullMethodName       = "/ateapi.Control/UpdateExternalVolume"
+	Control_DeleteExternalVolume_FullMethodName       = "/ateapi.Control/DeleteExternalVolume"
 	Control_ListWorkers_FullMethodName                = "/ateapi.Control/ListWorkers"
 	Control_GetWorker_FullMethodName                  = "/ateapi.Control/GetWorker"
 	Control_CreateWorker_FullMethodName               = "/ateapi.Control/CreateWorker"
@@ -125,6 +130,21 @@ type ControlClient interface {
 	// tag that have not yet been suspended still point at that external snapshot
 	// and become unrecoverable, so do not delete a tag while such Actors exist.
 	DeleteTag(ctx context.Context, in *DeleteTagRequest, opts ...grpc.CallOption) (*Tag, error)
+	// Create an ExternalVolume: a CSI volume whose lifetime is independent of
+	// any Actor, so that several Actors can mount the same storage in turn.
+	// Provisions the volume from a StorageClass, or, when the request supplies a
+	// volume ID, registers a disk that already exists.
+	CreateExternalVolume(ctx context.Context, in *CreateExternalVolumeRequest, opts ...grpc.CallOption) (*ExternalVolume, error)
+	// Get an ExternalVolume.
+	GetExternalVolume(ctx context.Context, in *GetExternalVolumeRequest, opts ...grpc.CallOption) (*ExternalVolume, error)
+	// List ExternalVolumes.
+	ListExternalVolumes(ctx context.Context, in *ListExternalVolumesRequest, opts ...grpc.CallOption) (*ListExternalVolumesResponse, error)
+	// Change an ExternalVolume's reclaim policy. Nothing about where the storage
+	// is can be changed; create a new volume for that.
+	UpdateExternalVolume(ctx context.Context, in *UpdateExternalVolumeRequest, opts ...grpc.CallOption) (*ExternalVolume, error)
+	// Delete an ExternalVolume, and the underlying storage if its reclaim policy
+	// says so. Rejected while any Actor still references the volume.
+	DeleteExternalVolume(ctx context.Context, in *DeleteExternalVolumeRequest, opts ...grpc.CallOption) (*ExternalVolume, error)
 	// List Workers.
 	ListWorkers(ctx context.Context, in *ListWorkersRequest, opts ...grpc.CallOption) (*ListWorkersResponse, error)
 	// Get a Worker.
@@ -349,6 +369,56 @@ func (c *controlClient) DeleteTag(ctx context.Context, in *DeleteTagRequest, opt
 	return out, nil
 }
 
+func (c *controlClient) CreateExternalVolume(ctx context.Context, in *CreateExternalVolumeRequest, opts ...grpc.CallOption) (*ExternalVolume, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ExternalVolume)
+	err := c.cc.Invoke(ctx, Control_CreateExternalVolume_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *controlClient) GetExternalVolume(ctx context.Context, in *GetExternalVolumeRequest, opts ...grpc.CallOption) (*ExternalVolume, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ExternalVolume)
+	err := c.cc.Invoke(ctx, Control_GetExternalVolume_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *controlClient) ListExternalVolumes(ctx context.Context, in *ListExternalVolumesRequest, opts ...grpc.CallOption) (*ListExternalVolumesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListExternalVolumesResponse)
+	err := c.cc.Invoke(ctx, Control_ListExternalVolumes_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *controlClient) UpdateExternalVolume(ctx context.Context, in *UpdateExternalVolumeRequest, opts ...grpc.CallOption) (*ExternalVolume, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ExternalVolume)
+	err := c.cc.Invoke(ctx, Control_UpdateExternalVolume_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *controlClient) DeleteExternalVolume(ctx context.Context, in *DeleteExternalVolumeRequest, opts ...grpc.CallOption) (*ExternalVolume, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ExternalVolume)
+	err := c.cc.Invoke(ctx, Control_DeleteExternalVolume_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *controlClient) ListWorkers(ctx context.Context, in *ListWorkersRequest, opts ...grpc.CallOption) (*ListWorkersResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListWorkersResponse)
@@ -565,6 +635,21 @@ type ControlServer interface {
 	// tag that have not yet been suspended still point at that external snapshot
 	// and become unrecoverable, so do not delete a tag while such Actors exist.
 	DeleteTag(context.Context, *DeleteTagRequest) (*Tag, error)
+	// Create an ExternalVolume: a CSI volume whose lifetime is independent of
+	// any Actor, so that several Actors can mount the same storage in turn.
+	// Provisions the volume from a StorageClass, or, when the request supplies a
+	// volume ID, registers a disk that already exists.
+	CreateExternalVolume(context.Context, *CreateExternalVolumeRequest) (*ExternalVolume, error)
+	// Get an ExternalVolume.
+	GetExternalVolume(context.Context, *GetExternalVolumeRequest) (*ExternalVolume, error)
+	// List ExternalVolumes.
+	ListExternalVolumes(context.Context, *ListExternalVolumesRequest) (*ListExternalVolumesResponse, error)
+	// Change an ExternalVolume's reclaim policy. Nothing about where the storage
+	// is can be changed; create a new volume for that.
+	UpdateExternalVolume(context.Context, *UpdateExternalVolumeRequest) (*ExternalVolume, error)
+	// Delete an ExternalVolume, and the underlying storage if its reclaim policy
+	// says so. Rejected while any Actor still references the volume.
+	DeleteExternalVolume(context.Context, *DeleteExternalVolumeRequest) (*ExternalVolume, error)
 	// List Workers.
 	ListWorkers(context.Context, *ListWorkersRequest) (*ListWorkersResponse, error)
 	// Get a Worker.
@@ -662,6 +747,21 @@ func (UnimplementedControlServer) UpdateTag(context.Context, *UpdateTagRequest) 
 }
 func (UnimplementedControlServer) DeleteTag(context.Context, *DeleteTagRequest) (*Tag, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteTag not implemented")
+}
+func (UnimplementedControlServer) CreateExternalVolume(context.Context, *CreateExternalVolumeRequest) (*ExternalVolume, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateExternalVolume not implemented")
+}
+func (UnimplementedControlServer) GetExternalVolume(context.Context, *GetExternalVolumeRequest) (*ExternalVolume, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetExternalVolume not implemented")
+}
+func (UnimplementedControlServer) ListExternalVolumes(context.Context, *ListExternalVolumesRequest) (*ListExternalVolumesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListExternalVolumes not implemented")
+}
+func (UnimplementedControlServer) UpdateExternalVolume(context.Context, *UpdateExternalVolumeRequest) (*ExternalVolume, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateExternalVolume not implemented")
+}
+func (UnimplementedControlServer) DeleteExternalVolume(context.Context, *DeleteExternalVolumeRequest) (*ExternalVolume, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteExternalVolume not implemented")
 }
 func (UnimplementedControlServer) ListWorkers(context.Context, *ListWorkersRequest) (*ListWorkersResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListWorkers not implemented")
@@ -1056,6 +1156,96 @@ func _Control_DeleteTag_Handler(srv interface{}, ctx context.Context, dec func(i
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Control_CreateExternalVolume_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateExternalVolumeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ControlServer).CreateExternalVolume(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Control_CreateExternalVolume_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ControlServer).CreateExternalVolume(ctx, req.(*CreateExternalVolumeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Control_GetExternalVolume_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetExternalVolumeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ControlServer).GetExternalVolume(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Control_GetExternalVolume_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ControlServer).GetExternalVolume(ctx, req.(*GetExternalVolumeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Control_ListExternalVolumes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListExternalVolumesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ControlServer).ListExternalVolumes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Control_ListExternalVolumes_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ControlServer).ListExternalVolumes(ctx, req.(*ListExternalVolumesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Control_UpdateExternalVolume_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateExternalVolumeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ControlServer).UpdateExternalVolume(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Control_UpdateExternalVolume_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ControlServer).UpdateExternalVolume(ctx, req.(*UpdateExternalVolumeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Control_DeleteExternalVolume_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteExternalVolumeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ControlServer).DeleteExternalVolume(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Control_DeleteExternalVolume_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ControlServer).DeleteExternalVolume(ctx, req.(*DeleteExternalVolumeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Control_ListWorkers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListWorkersRequest)
 	if err := dec(in); err != nil {
@@ -1422,6 +1612,26 @@ var Control_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteTag",
 			Handler:    _Control_DeleteTag_Handler,
+		},
+		{
+			MethodName: "CreateExternalVolume",
+			Handler:    _Control_CreateExternalVolume_Handler,
+		},
+		{
+			MethodName: "GetExternalVolume",
+			Handler:    _Control_GetExternalVolume_Handler,
+		},
+		{
+			MethodName: "ListExternalVolumes",
+			Handler:    _Control_ListExternalVolumes_Handler,
+		},
+		{
+			MethodName: "UpdateExternalVolume",
+			Handler:    _Control_UpdateExternalVolume_Handler,
+		},
+		{
+			MethodName: "DeleteExternalVolume",
+			Handler:    _Control_DeleteExternalVolume_Handler,
 		},
 		{
 			MethodName: "ListWorkers",

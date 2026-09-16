@@ -687,6 +687,115 @@ func TestPrintTagTo_YAML(t *testing.T) {
 	}
 }
 
+func TestPrintExternalVolumesTo_Table(t *testing.T) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	pinNow(t, now)
+
+	var buf bytes.Buffer
+	volumes := []*ateapipb.ExternalVolume{
+		{
+			Metadata: &ateapipb.ResourceMetadata{
+				Atespace:   "team-a",
+				Name:       "shared",
+				CreateTime: timestamppb.New(now.Add(-5 * time.Minute)),
+			},
+			ReclaimPolicy: ateapipb.ReclaimPolicy_RECLAIM_POLICY_DELETE,
+			VolumeId:      "projects/p/zones/z/disks/substrate-1",
+			VolumeType:    "pd.csi.storage.gke.io",
+			Status: &ateapipb.ExternalVolumeStatus{
+				State: ateapipb.ExternalVolumeState_EXTERNAL_VOLUME_STATE_READY,
+				Refs: []*ateapipb.ActorRef{
+					{ActorUid: "uid-1", ActorName: "producer"},
+				},
+			},
+		},
+		{
+			Metadata: &ateapipb.ResourceMetadata{
+				Atespace:   "team-a",
+				Name:       "adopted",
+				CreateTime: timestamppb.New(now.Add(-5 * time.Hour)),
+			},
+			ReclaimPolicy: ateapipb.ReclaimPolicy_RECLAIM_POLICY_RETAIN,
+			VolumeId:      "projects/p/zones/z/disks/preexisting",
+			VolumeType:    "pd.csi.storage.gke.io",
+			Status: &ateapipb.ExternalVolumeStatus{
+				State: ateapipb.ExternalVolumeState_EXTERNAL_VOLUME_STATE_READY,
+			},
+		},
+		{
+			// A volume whose create never finished: it names no storage an
+			// Actor can mount yet, which the STATE column is there to say.
+			Metadata: &ateapipb.ResourceMetadata{
+				Atespace:   "team-a",
+				Name:       "stranded",
+				CreateTime: timestamppb.New(now.Add(-30 * time.Second)),
+			},
+			ReclaimPolicy: ateapipb.ReclaimPolicy_RECLAIM_POLICY_DELETE,
+			Status: &ateapipb.ExternalVolumeStatus{
+				State: ateapipb.ExternalVolumeState_EXTERNAL_VOLUME_STATE_PENDING,
+			},
+		},
+	}
+
+	if err := PrintExternalVolumesTo(&buf, volumes, "table"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Sorted by atespace, then name.
+	expected := `ATESPACE   NAME       STATE     VOLUME TYPE             VOLUME ID                              RECLAIM                 REFS   AGE
+team-a     adopted    Ready     pd.csi.storage.gke.io   projects/p/zones/z/disks/preexisting   RECLAIM_POLICY_RETAIN   0      5h
+team-a     shared     Ready     pd.csi.storage.gke.io   projects/p/zones/z/disks/substrate-1   RECLAIM_POLICY_DELETE   1      5m
+team-a     stranded   Pending   <none>                  <none>                                 RECLAIM_POLICY_DELETE   0      30s
+`
+	if diff := cmp.Diff(expected, buf.String()); diff != "" {
+		t.Errorf("output mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestPrintExternalVolumesTo_Invalid(t *testing.T) {
+	var buf bytes.Buffer
+	if err := PrintExternalVolumesTo(&buf, nil, "xml"); err == nil {
+		t.Errorf("expected error for invalid format, got nil")
+	}
+}
+
+func TestPrintExternalVolumeTo_JSON(t *testing.T) {
+	var buf bytes.Buffer
+	volume := &ateapipb.ExternalVolume{Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "shared"}}
+
+	if err := PrintExternalVolumeTo(&buf, volume, "json"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := `{
+  "metadata": {
+    "atespace": "team-a",
+    "name": "shared"
+  }
+}
+`
+	if diff := cmp.Diff(expected, buf.String()); diff != "" {
+		t.Errorf("output mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestPrintExternalVolumeTo_YAML(t *testing.T) {
+	var buf bytes.Buffer
+	volume := &ateapipb.ExternalVolume{Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "shared"}}
+
+	if err := PrintExternalVolumeTo(&buf, volume, "yaml"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := `metadata:
+  atespace: team-a
+  name: shared
+`
+	if diff := cmp.Diff(expected, buf.String()); diff != "" {
+		t.Errorf("output mismatch (-want +got):\n%s", diff)
+	}
+}
+
 func TestPrintAtespacesTo_Table(t *testing.T) {
 	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 	pinNow(t, now)

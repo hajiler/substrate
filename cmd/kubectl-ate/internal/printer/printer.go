@@ -373,6 +373,59 @@ func PrintTagTo(out io.Writer, tag *ateapipb.Tag, format string) error {
 	return PrintTagsTo(out, []*ateapipb.Tag{tag}, format)
 }
 
+// PrintExternalVolumesTo prints a slice of external volumes to the provided
+// writer.
+func PrintExternalVolumesTo(out io.Writer, volumes []*ateapipb.ExternalVolume, format string) error {
+	slices.SortFunc(volumes, func(a, b *ateapipb.ExternalVolume) int {
+		if c := cmp.Compare(a.GetMetadata().GetAtespace(), b.GetMetadata().GetAtespace()); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.GetMetadata().GetName(), b.GetMetadata().GetName())
+	})
+	switch format {
+	case "json", "yaml":
+		return printProto(out, &ateapipb.ListExternalVolumesResponse{ExternalVolumes: volumes}, format)
+	case "table":
+		w := tabwriter.NewWriter(out, 0, 0, 3, ' ', 0)
+		fmt.Fprintln(w, "ATESPACE\tNAME\tSTATE\tVOLUME TYPE\tVOLUME ID\tRECLAIM\tREFS\tAGE")
+		for _, volume := range volumes {
+			// A pending volume has no handle yet, so neither its type nor its
+			// ID says anything.
+			volumeType, volumeID := "<none>", "<none>"
+			if volume.GetVolumeId() != "" {
+				volumeType, volumeID = volume.GetVolumeType(), volume.GetVolumeId()
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\n",
+				volume.GetMetadata().GetAtespace(), volume.GetMetadata().GetName(),
+				externalVolumeState(volume), volumeType, volumeID,
+				volume.GetReclaimPolicy(), len(volume.GetStatus().GetRefs()),
+				formatAge(volume.GetMetadata().GetCreateTime()))
+		}
+		return w.Flush()
+	default:
+		return fmt.Errorf("unsupported format %q", format)
+	}
+}
+
+// externalVolumeState reports whether a volume is usable. A volume is Pending
+// until its handle lands; until then it names no storage an Actor can mount,
+// and deleting it collects whatever the create stranded.
+func externalVolumeState(volume *ateapipb.ExternalVolume) string {
+	if volume.GetStatus().GetState() != ateapipb.ExternalVolumeState_EXTERNAL_VOLUME_STATE_READY {
+		return "Pending"
+	}
+	return "Ready"
+}
+
+// PrintExternalVolumeTo prints a single external volume to the provided writer.
+func PrintExternalVolumeTo(out io.Writer, volume *ateapipb.ExternalVolume, format string) error {
+	if format == "json" || format == "yaml" {
+		return printProto(out, volume, format)
+	}
+	// table has no singular/plural distinction, so reuse the list renderer.
+	return PrintExternalVolumesTo(out, []*ateapipb.ExternalVolume{volume}, format)
+}
+
 func sortAtespaces(atespaces []*ateapipb.Atespace) {
 	slices.SortFunc(atespaces, func(a, b *ateapipb.Atespace) int {
 		return cmp.Compare(a.GetMetadata().GetName(), b.GetMetadata().GetName())

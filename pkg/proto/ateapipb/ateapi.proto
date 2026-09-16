@@ -91,6 +91,26 @@ service Control {
   // and become unrecoverable, so do not delete a tag while such Actors exist.
   rpc DeleteTag(DeleteTagRequest) returns (Tag) {}
 
+  // Create an ExternalVolume: a CSI volume whose lifetime is independent of
+  // any Actor, so that several Actors can mount the same storage in turn.
+  // Provisions the volume from a StorageClass, or, when the request supplies a
+  // volume ID, registers a disk that already exists.
+  rpc CreateExternalVolume(CreateExternalVolumeRequest) returns (ExternalVolume) {}
+
+  // Get an ExternalVolume.
+  rpc GetExternalVolume(GetExternalVolumeRequest) returns (ExternalVolume) {}
+
+  // List ExternalVolumes.
+  rpc ListExternalVolumes(ListExternalVolumesRequest) returns (ListExternalVolumesResponse) {}
+
+  // Change an ExternalVolume's reclaim policy. Nothing about where the storage
+  // is can be changed; create a new volume for that.
+  rpc UpdateExternalVolume(UpdateExternalVolumeRequest) returns (ExternalVolume) {}
+
+  // Delete an ExternalVolume, and the underlying storage if its reclaim policy
+  // says so. Rejected while any Actor still references the volume.
+  rpc DeleteExternalVolume(DeleteExternalVolumeRequest) returns (ExternalVolume) {}
+
   // List Workers.
   rpc ListWorkers(ListWorkersRequest) returns (ListWorkersResponse) {}
 
@@ -810,6 +830,22 @@ message ExternalVolume {
   // +k8s:update=NoUnset
   // +k8s:customValidation
   string volume_type = 5;
+
+  // capacity of the volume to provision, in Kubernetes resource.Quantity
+  // string form (e.g. "10Gi"). Required when provisioning from a storage
+  // class, and rejected alongside a volume_id, because a volume that already
+  // exists has whatever size it has.
+  //
+  // Set once, at create. Resizing is not supported, so this stays the size
+  // that was asked for rather than becoming a size that can be asked for
+  // again.
+  //
+  // +k8s:optional
+  // +k8s:maxLength=64
+  // +k8s:update=NoModify
+  // +k8s:update=NoUnset
+  // +k8s:customValidation # must parse as a resource.Quantity
+  string capacity = 8;
 
   // volume_context is driver metadata needed by the node plugin for mounting.
   // Supplied alongside an existing volume_id, or returned by the storage system
@@ -1813,6 +1849,96 @@ message DeleteTagRequest {
   // +k8s:required
   // +k8s:subfield(atespace)=+k8s:required
   ObjectRef tag = 1;
+}
+
+// Request to create an ExternalVolume.
+//
+// The volume is reserved by name first and only then provisioned, so a create
+// that fails or times out leaves a pending record behind. To retry, delete the
+// volume first — which collects whatever that attempt stranded — and create it
+// again.
+//
+// +k8s:customValidation # exactly one of storage_class_name and volume_id, and volume_type with an ID
+message CreateExternalVolumeRequest {
+  // The volume to create. metadata.atespace, metadata.name, reclaim_policy,
+  // storage_class_name, volume_id, volume_type and volume_context are honored;
+  // status is ignored on write.
+  //
+  // Name a storage class to provision a new volume, or supply a volume ID to
+  // register one that already exists, but not both: with an ID there is
+  // nothing left to provision.
+  //
+  // +k8s:required
+  ExternalVolume external_volume = 1;
+}
+
+// GetExternalVolumeRequest identifies one ExternalVolume.
+message GetExternalVolumeRequest {
+  // The volume to get.
+  //
+  // +k8s:required
+  // +k8s:subfield(atespace)=+k8s:required
+  ObjectRef external_volume = 1;
+}
+
+// ListExternalVolumesRequest selects a page of ExternalVolumes.
+message ListExternalVolumesRequest {
+  // The atespace to list external volumes from. Empty lists across all
+  // atespaces.
+  //
+  // +k8s:optional
+  // +k8s:format=k8s-short-name
+  string atespace = 1;
+
+  // Requested page size; the server may return fewer, or occasionally
+  // slightly more. If unspecified, defaults to a server-chosen value;
+  // values above 1000 are coerced to 1000.
+  //
+  // +k8s:optional
+  // +k8s:minimum=1
+  int32 page_size = 2;
+
+  // Pagination token from a previous ListExternalVolumes response.
+  // Omit or leave empty for the first request.
+  //
+  // +k8s:optional
+  // +k8s:maxLength=256
+  string page_token = 3;
+}
+
+// ListExternalVolumesResponse is one page of ExternalVolumes.
+message ListExternalVolumesResponse {
+  // The volumes in this page.
+  repeated ExternalVolume external_volumes = 1;
+
+  // Pagination token to pass to the next ListExternalVolumes call. Empty on
+  // the last page.
+  string next_page_token = 2;
+}
+
+// Request to update mutable fields on an existing ExternalVolume.
+// The volume keeps its storage: the disk it points at cannot be changed.
+message UpdateExternalVolumeRequest {
+  // The volume to update.
+  // external_volume.metadata.atespace and external_volume.metadata.name
+  // identify which resource to update.
+  // external_volume.metadata.version and external_volume.metadata.uid are
+  // required preconditions.
+  //
+  // +k8s:required
+  // +k8s:opaqueType # updates are handled in 2 steps, do not descend
+  // +k8s:subfield(metadata)=+k8s:required
+  // +k8s:customValidation # TODO: when we get nested subfields, require metadata.atespace
+  ExternalVolume external_volume = 1;
+}
+
+// DeleteExternalVolumeRequest identifies one ExternalVolume to delete.
+message DeleteExternalVolumeRequest {
+  // The volume to delete.
+  //
+  // +k8s:required
+  // +k8s:subfield(atespace)=+k8s:required
+  ObjectRef external_volume = 1;
 }
 
 // DeleteOptions carries per-delete controls. Today it holds optional

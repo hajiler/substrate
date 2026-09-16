@@ -556,6 +556,7 @@ var resourceNames = []string{
 	"Tag",
 	"ActorTemplate",
 	"Atespace",
+	"ExternalVolume",
 	"Worker",
 }
 

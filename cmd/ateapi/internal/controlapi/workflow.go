@@ -217,3 +217,7 @@ func (w *ActorWorkflow) acquireActorLease(ctx context.Context, actorRef resource
 func acquireTagLease(ctx context.Context, holder leaseHolder, tagRef resources.TagRef) (context.Context, *store.Lease, error) {
 	return acquireLease(ctx, holder, "lease:tag:"+tagRef.Atespace+":"+tagRef.Name, "Tag")
 }
+
+func acquireExternalVolumeLease(ctx context.Context, holder leaseHolder, volumeRef resources.ExternalVolumeRef) (context.Context, *store.Lease, error) {
+	return acquireLease(ctx, holder, "lease:externalvolume:"+volumeRef.Atespace+":"+volumeRef.Name, "ExternalVolume")
+}

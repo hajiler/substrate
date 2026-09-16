@@ -139,6 +139,31 @@ class ControlStub:
                 request_serializer=ateapi__pb2.DeleteTagRequest.SerializeToString,
                 response_deserializer=ateapi__pb2.Tag.FromString,
                 _registered_method=True)
+        self.CreateExternalVolume = channel.unary_unary(
+                '/ateapi.Control/CreateExternalVolume',
+                request_serializer=ateapi__pb2.CreateExternalVolumeRequest.SerializeToString,
+                response_deserializer=ateapi__pb2.ExternalVolume.FromString,
+                _registered_method=True)
+        self.GetExternalVolume = channel.unary_unary(
+                '/ateapi.Control/GetExternalVolume',
+                request_serializer=ateapi__pb2.GetExternalVolumeRequest.SerializeToString,
+                response_deserializer=ateapi__pb2.ExternalVolume.FromString,
+                _registered_method=True)
+        self.ListExternalVolumes = channel.unary_unary(
+                '/ateapi.Control/ListExternalVolumes',
+                request_serializer=ateapi__pb2.ListExternalVolumesRequest.SerializeToString,
+                response_deserializer=ateapi__pb2.ListExternalVolumesResponse.FromString,
+                _registered_method=True)
+        self.UpdateExternalVolume = channel.unary_unary(
+                '/ateapi.Control/UpdateExternalVolume',
+                request_serializer=ateapi__pb2.UpdateExternalVolumeRequest.SerializeToString,
+                response_deserializer=ateapi__pb2.ExternalVolume.FromString,
+                _registered_method=True)
+        self.DeleteExternalVolume = channel.unary_unary(
+                '/ateapi.Control/DeleteExternalVolume',
+                request_serializer=ateapi__pb2.DeleteExternalVolumeRequest.SerializeToString,
+                response_deserializer=ateapi__pb2.ExternalVolume.FromString,
+                _registered_method=True)
         self.ListWorkers = channel.unary_unary(
                 '/ateapi.Control/ListWorkers',
                 request_serializer=ateapi__pb2.ListWorkersRequest.SerializeToString,
@@ -365,6 +390,46 @@ class ControlServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def CreateExternalVolume(self, request, context):
+        """Create an ExternalVolume: a CSI volume whose lifetime is independent of
+        any Actor, so that several Actors can mount the same storage in turn.
+        Provisions the volume from a StorageClass, or, when the request supplies a
+        volume ID, registers a disk that already exists.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetExternalVolume(self, request, context):
+        """Get an ExternalVolume.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListExternalVolumes(self, request, context):
+        """List ExternalVolumes.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def UpdateExternalVolume(self, request, context):
+        """Change an ExternalVolume's reclaim policy. Nothing about where the storage
+        is can be changed; create a new volume for that.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def DeleteExternalVolume(self, request, context):
+        """Delete an ExternalVolume, and the underlying storage if its reclaim policy
+        says so. Rejected while any Actor still references the volume.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def ListWorkers(self, request, context):
         """List Workers.
         """
@@ -571,6 +636,31 @@ def add_ControlServicer_to_server(servicer, server):
                     servicer.DeleteTag,
                     request_deserializer=ateapi__pb2.DeleteTagRequest.FromString,
                     response_serializer=ateapi__pb2.Tag.SerializeToString,
+            ),
+            'CreateExternalVolume': grpc.unary_unary_rpc_method_handler(
+                    servicer.CreateExternalVolume,
+                    request_deserializer=ateapi__pb2.CreateExternalVolumeRequest.FromString,
+                    response_serializer=ateapi__pb2.ExternalVolume.SerializeToString,
+            ),
+            'GetExternalVolume': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetExternalVolume,
+                    request_deserializer=ateapi__pb2.GetExternalVolumeRequest.FromString,
+                    response_serializer=ateapi__pb2.ExternalVolume.SerializeToString,
+            ),
+            'ListExternalVolumes': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListExternalVolumes,
+                    request_deserializer=ateapi__pb2.ListExternalVolumesRequest.FromString,
+                    response_serializer=ateapi__pb2.ListExternalVolumesResponse.SerializeToString,
+            ),
+            'UpdateExternalVolume': grpc.unary_unary_rpc_method_handler(
+                    servicer.UpdateExternalVolume,
+                    request_deserializer=ateapi__pb2.UpdateExternalVolumeRequest.FromString,
+                    response_serializer=ateapi__pb2.ExternalVolume.SerializeToString,
+            ),
+            'DeleteExternalVolume': grpc.unary_unary_rpc_method_handler(
+                    servicer.DeleteExternalVolume,
+                    request_deserializer=ateapi__pb2.DeleteExternalVolumeRequest.FromString,
+                    response_serializer=ateapi__pb2.ExternalVolume.SerializeToString,
             ),
             'ListWorkers': grpc.unary_unary_rpc_method_handler(
                     servicer.ListWorkers,
@@ -1140,6 +1230,141 @@ class Control:
             '/ateapi.Control/DeleteTag',
             ateapi__pb2.DeleteTagRequest.SerializeToString,
             ateapi__pb2.Tag.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def CreateExternalVolume(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/ateapi.Control/CreateExternalVolume',
+            ateapi__pb2.CreateExternalVolumeRequest.SerializeToString,
+            ateapi__pb2.ExternalVolume.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetExternalVolume(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/ateapi.Control/GetExternalVolume',
+            ateapi__pb2.GetExternalVolumeRequest.SerializeToString,
+            ateapi__pb2.ExternalVolume.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListExternalVolumes(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/ateapi.Control/ListExternalVolumes',
+            ateapi__pb2.ListExternalVolumesRequest.SerializeToString,
+            ateapi__pb2.ListExternalVolumesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def UpdateExternalVolume(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/ateapi.Control/UpdateExternalVolume',
+            ateapi__pb2.UpdateExternalVolumeRequest.SerializeToString,
+            ateapi__pb2.ExternalVolume.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def DeleteExternalVolume(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/ateapi.Control/DeleteExternalVolume',
+            ateapi__pb2.DeleteExternalVolumeRequest.SerializeToString,
+            ateapi__pb2.ExternalVolume.FromString,
             options,
             channel_credentials,
             insecure,
