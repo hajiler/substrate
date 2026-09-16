@@ -162,6 +162,8 @@ type actorWorkflowStore interface {
 	UpdateTag(ctx context.Context, tagRef resources.TagRef, precondition store.Precondition, mutate func(toUpdate *ateapipb.Tag) error) (*ateapipb.Tag, error)
 	GetActorTemplate(ctx context.Context, templateRef resources.ActorTemplateRef) (*ateapipb.ActorTemplate, error)
 	AcquireLease(ctx context.Context, key string) (*store.Lease, error)
+	// Claiming and releasing the ExternalVolumes an actor borrows.
+	externalVolumeRefStore
 }
 
 // WorkerWorkflow handles the multi-step operations on a Worker.

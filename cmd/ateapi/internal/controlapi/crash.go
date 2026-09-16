@@ -87,6 +87,15 @@ func crashActor(ctx context.Context, st crashActorStore, actorRef resources.Acto
 		return fmt.Errorf("while releasing worker to crash actor: %w", err)
 	}
 
+	// A crashed actor is not running, so it must not go on holding a shared
+	// volume undeletable. Best-effort on purpose: failing here would leave the
+	// actor in its old state with its worker already released, and the
+	// reference is taken back on the next resume or dropped on delete anyway.
+	if err := releaseExternalVolumes(ctx, st, actor); err != nil {
+		slog.WarnContext(ctx, "Failed to release external volume references while crashing actor",
+			slog.Any("actor", actorRef), slog.Any("err", err))
+	}
+
 	// Snapshot crash attributes before pod and pool pointers are cleared below;
 	// the counter itself is emitted only after the transition commits.
 	crashAttrs := ateattr.ActorMetricAttributes(actor, sandboxClass, opName, reason)
@@ -135,6 +144,7 @@ type crashActorStore interface {
 	UpdateActor(ctx context.Context, actorRef resources.ActorRef, precondition store.Precondition, mutate func(toUpdate *ateapipb.Actor) error) (*ateapipb.Actor, error)
 	GetWorker(ctx context.Context, name string) (*ateapipb.Worker, error)
 	ReleaseActorFromWorker(ctx context.Context, workerName string, actorUID string) (*ateapipb.Worker, error)
+	externalVolumeRefStore
 }
 
 // releaseWorker clears the worker's assignment if it still points at the given

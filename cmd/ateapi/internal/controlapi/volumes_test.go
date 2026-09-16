@@ -275,6 +275,55 @@ func TestCreateActorVolumes(t *testing.T) {
 	}
 }
 
+// TestBorrowedVolumesAreNotProvisionedOrDeleted covers the whole life of a
+// mount borrowed from an ExternalVolume: the claim on resume is what fills it
+// in, so neither end of the actor's own volume lifecycle may touch the disk.
+func TestBorrowedVolumesAreNotProvisionedOrDeleted(t *testing.T) {
+	ctx := context.Background()
+
+	template := &ateapipb.ActorTemplate{
+		Volumes: []*ateapipb.Volume{
+			{Name: "shared-data", ExternalVolumeRef: &ateapipb.ExternalVolumeRef{Name: "shared"}},
+		},
+	}
+	scLister := &fakeStorageClassLister{storageClasses: map[string]*storagev1.StorageClass{}}
+
+	// A borrowed volume names no driver or handle until the claim resolves it,
+	// so the actor starts with nothing recorded for it.
+	initial, err := initialActorVolumes(ctx, scLister, template)
+	if err != nil {
+		t.Fatalf("initialActorVolumes: %v", err)
+	}
+	if len(initial) != 0 {
+		t.Errorf("initialActorVolumes() = %v, want no entry for a borrowed volume", initial)
+	}
+
+	claimed := []*ateapipb.ActorVolumeStatus{{
+		VolumeName:         "shared-data",
+		ExternalVolumeName: "shared",
+		StorageVolumeId:    "disk/shared",
+		VolumeType:         "mock",
+		Status:             ateapipb.ActorVolumeStatus_STATUS_CREATED,
+	}}
+	plugin := &trackingVolumePlugin{}
+	registry := &mockPluginRegistry{plugins: map[string]volume.VolumePluginControlPlane{"mock": plugin}}
+
+	got, err := createActorVolumes(ctx, registry, scLister, "actor-uid-123", template, claimed)
+	if err != nil {
+		t.Fatalf("createActorVolumes: %v", err)
+	}
+	if diff := cmp.Diff(claimed, got, protocmp.Transform()); diff != "" {
+		t.Errorf("createActorVolumes() mismatch (-want +got):\n%s", diff)
+	}
+
+	if err := deleteActorVolumes(ctx, registry, "actor-uid-123", claimed); err != nil {
+		t.Fatalf("deleteActorVolumes: %v", err)
+	}
+	if len(plugin.deletedIDs) != 0 {
+		t.Errorf("deleted %v, want the borrowed disk left to its ExternalVolume", plugin.deletedIDs)
+	}
+}
+
 type trackingVolumePlugin struct {
 	volume.VolumePluginControlPlane
 	deletedIDs []string

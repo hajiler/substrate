@@ -331,15 +331,24 @@ func inProgressSnapshotURI(actorTemplate *ateapipb.ActorTemplate, actor *ateapip
 }
 
 // ensureVolumesDetached detaches the actor's mounted external volumes from
-// its worker node. Detachment is idempotent, so a re-entered workflow safely
-// runs it again. spanName distinguishes the suspend and pause steps in
-// traces; op labels the volume metrics.
+// its worker node, then gives back the references it holds on any borrowed
+// ExternalVolume: a paused or suspended actor is not running, so it must not
+// keep a shared volume undeletable. The reference is taken again on resume.
+//
+// Both steps are idempotent, so a re-entered workflow safely runs them again.
+// spanName distinguishes the suspend and pause steps in traces; op labels the
+// volume metrics.
 // TODO replace re-execution with a proper check on the volumes' attach state.
 func (w *ActorWorkflow) ensureVolumesDetached(ctx context.Context, actor *ateapipb.Actor, actorTemplate *ateapipb.ActorTemplate, spanName, op string) (err error) {
 	ctx, done := stepSpan(ctx, spanName)
 	defer func() { err = done(err) }()
 
-	return detachActorVolumes(ctx, w.store, w.pluginRegistry, actor, actorTemplate, op)
+	if err := detachActorVolumes(ctx, w.store, w.pluginRegistry, actor, actorTemplate, op); err != nil {
+		return err
+	}
+	// Released only after the detach, so the disk is off the node before
+	// anything else is allowed to reclaim it.
+	return releaseExternalVolumes(ctx, w.store, actor)
 }
 
 // ensureSuspendedFinalized releases the actor's worker (only when it is still

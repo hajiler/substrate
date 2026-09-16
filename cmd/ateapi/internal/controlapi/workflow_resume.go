@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/agent-substrate/substrate/cmd/ateapi/internal/scheduling"
@@ -248,12 +249,24 @@ func (w *ActorWorkflow) ensureVolumesCreated(ctx context.Context, actorRef resou
 			break
 		}
 	}
-	if !pending {
+	// A borrowed volume is claimed on every resume: the reference is only held
+	// while the actor runs, so the previous pause or suspend gave it back.
+	borrows := slices.ContainsFunc(actorTemplate.GetVolumes(), func(v *ateapipb.Volume) bool {
+		return v.GetExternalVolumeRef() != nil
+	})
+	if !pending && !borrows {
 		markSkipped(ctx, "no volumes awaiting creation")
 		return actor, nil
 	}
 
-	volumes, createErr := createActorVolumes(ctx, w.pluginRegistry, w.storageClassLister, actor.GetMetadata().GetUid(), actorTemplate, actor.GetStatus().GetActorVolumes())
+	// Claim first: createActorVolumes needs the borrowed mounts already in the
+	// list so it passes them through rather than treating them as unprovisioned.
+	claimed, err := claimExternalVolumes(ctx, w.store, actor, actorTemplate)
+	if err != nil {
+		return nil, err
+	}
+
+	volumes, createErr := createActorVolumes(ctx, w.pluginRegistry, w.storageClassLister, actor.GetMetadata().GetUid(), actorTemplate, claimed)
 	// createActorVolumes reports the state it got to even when it fails, so both
 	// paths persist the same field.
 	updatePrecondition := store.PreconditionFrom(actor)

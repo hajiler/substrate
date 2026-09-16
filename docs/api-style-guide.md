@@ -576,7 +576,8 @@ message Volume {
   // +k8s:format=k8s-short-name
   string name = 1;
 
-  // Exactly one of durable_dir / external_volume_template / image must be set.
+  // Exactly one of durable_dir / external_volume_template /
+  // external_volume_ref / image / system_info must be set.
   //
   // +k8s:optional
   // +k8s:unionMember
@@ -588,7 +589,15 @@ message Volume {
 
   // +k8s:optional
   // +k8s:unionMember
-  ImageVolumeSource image = 4;
+  ExternalVolumeRef external_volume_ref = 4;
+
+  // +k8s:optional
+  // +k8s:unionMember
+  SystemInfoVolumeSource system_info = 5;
+
+  // +k8s:optional
+  // +k8s:unionMember
+  ImageVolumeSource image = 6;
 }
 ```
 

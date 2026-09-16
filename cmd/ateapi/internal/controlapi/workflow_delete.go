@@ -88,6 +88,10 @@ func (w *ActorWorkflow) DeleteActor(ctx context.Context, actorRef resources.Acto
 		errs = append(errs, fmt.Errorf("while deleting volumes: %w", err))
 	}
 
+	if err := w.ensureExternalVolumeRefsReleased(ctx, actor); err != nil {
+		errs = append(errs, fmt.Errorf("while releasing external volume references: %w", err))
+	}
+
 	if err := w.ensureExternalSnapshotsReleased(ctx, actor, actorTemplate); err != nil {
 		errs = append(errs, fmt.Errorf("while releasing external snapshots: %w", err))
 	}
@@ -366,6 +370,20 @@ func (w *ActorWorkflow) ensureVolumesDeleted(ctx context.Context, actor *ateapip
 		return status.Errorf(codes.Internal, "while deleting actor volumes: %v", err)
 	}
 	return nil
+}
+
+// ensureExternalVolumeRefsReleased gives back the references the actor holds on
+// the ExternalVolumes it borrowed, so that a volume nothing references any more
+// can be deleted. It runs after the actor's own volumes are deleted, and before
+// the record is removed, so a failed attempt is rediscoverable on the retry.
+//
+// A borrowed disk is never deleted here: the ExternalVolume owns it and outlives
+// the actor, the same way a tag owns the snapshot an actor was cloned from.
+func (w *ActorWorkflow) ensureExternalVolumeRefsReleased(ctx context.Context, actor *ateapipb.Actor) (err error) {
+	ctx, done := stepSpan(ctx, "ReleaseExternalVolumeRefs")
+	defer func() { err = done(err) }()
+
+	return releaseExternalVolumes(ctx, w.store, actor)
 }
 
 // ensureExternalSnapshotsReleased collects everything the actor wrote to

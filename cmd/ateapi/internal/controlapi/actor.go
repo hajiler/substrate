@@ -181,6 +181,11 @@ func (s *ServiceImpl) resolveTagSource(ctx context.Context, actorAtespace string
 			// TODO: Permit cloning after CSI volume snapshots are supported.
 			return nil, status.Error(codes.FailedPrecondition, "Tag cloning does not support ActorTemplates with external volumes")
 		}
+		// A borrowed volume is shared in turn, not concurrently: a clone would
+		// be a second actor holding the same disk at the same time.
+		if volume.GetExternalVolumeRef() != nil {
+			return nil, status.Error(codes.FailedPrecondition, "Tag cloning does not support ActorTemplates that reference an ExternalVolume")
+		}
 	}
 	return tag, nil
 }
