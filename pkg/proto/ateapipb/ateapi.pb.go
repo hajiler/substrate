@@ -533,27 +533,28 @@ func (WorkerState) EnumDescriptor() ([]byte, []int) {
 	return file_ateapi_proto_rawDescGZIP(), []int{8}
 }
 
-type ExternalVolume_Status int32
+// Status is the volume's lifecycle state in the storage system.
+type ActorVolumeStatus_Status int32
 
 const (
-	ExternalVolume_STATUS_UNSPECIFIED ExternalVolume_Status = 0
+	ActorVolumeStatus_STATUS_UNSPECIFIED ActorVolumeStatus_Status = 0
 	// Volume creation pending in the storage system.
-	ExternalVolume_STATUS_PENDING ExternalVolume_Status = 1
+	ActorVolumeStatus_STATUS_PENDING ActorVolumeStatus_Status = 1
 	// Volume successfully created in the storage system.
-	ExternalVolume_STATUS_CREATED ExternalVolume_Status = 2
+	ActorVolumeStatus_STATUS_CREATED ActorVolumeStatus_Status = 2
 	// Volume being deleted from the storage system.
-	ExternalVolume_STATUS_DELETING ExternalVolume_Status = 3 // Keep this in sync with ExternalVolume.status's maximum.
+	ActorVolumeStatus_STATUS_DELETING ActorVolumeStatus_Status = 3 // Keep this in sync with ActorVolumeStatus.status's maximum.
 )
 
-// Enum value maps for ExternalVolume_Status.
+// Enum value maps for ActorVolumeStatus_Status.
 var (
-	ExternalVolume_Status_name = map[int32]string{
+	ActorVolumeStatus_Status_name = map[int32]string{
 		0: "STATUS_UNSPECIFIED",
 		1: "STATUS_PENDING",
 		2: "STATUS_CREATED",
 		3: "STATUS_DELETING",
 	}
-	ExternalVolume_Status_value = map[string]int32{
+	ActorVolumeStatus_Status_value = map[string]int32{
 		"STATUS_UNSPECIFIED": 0,
 		"STATUS_PENDING":     1,
 		"STATUS_CREATED":     2,
@@ -561,30 +562,30 @@ var (
 	}
 )
 
-func (x ExternalVolume_Status) Enum() *ExternalVolume_Status {
-	p := new(ExternalVolume_Status)
+func (x ActorVolumeStatus_Status) Enum() *ActorVolumeStatus_Status {
+	p := new(ActorVolumeStatus_Status)
 	*p = x
 	return p
 }
 
-func (x ExternalVolume_Status) String() string {
+func (x ActorVolumeStatus_Status) String() string {
 	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
 }
 
-func (ExternalVolume_Status) Descriptor() protoreflect.EnumDescriptor {
+func (ActorVolumeStatus_Status) Descriptor() protoreflect.EnumDescriptor {
 	return file_ateapi_proto_enumTypes[9].Descriptor()
 }
 
-func (ExternalVolume_Status) Type() protoreflect.EnumType {
+func (ActorVolumeStatus_Status) Type() protoreflect.EnumType {
 	return &file_ateapi_proto_enumTypes[9]
 }
 
-func (x ExternalVolume_Status) Number() protoreflect.EnumNumber {
+func (x ActorVolumeStatus_Status) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
-// Deprecated: Use ExternalVolume_Status.Descriptor instead.
-func (ExternalVolume_Status) EnumDescriptor() ([]byte, []int) {
+// Deprecated: Use ActorVolumeStatus_Status.Descriptor instead.
+func (ActorVolumeStatus_Status) EnumDescriptor() ([]byte, []int) {
 	return file_ateapi_proto_rawDescGZIP(), []int{6, 0}
 }
 
@@ -1068,7 +1069,8 @@ func (x *ResourceMetadata) GetUpdateTime() *timestamppb.Timestamp {
 	return nil
 }
 
-type ExternalVolume struct {
+// ActorVolumeStatus is one actor's view of an external volume it mounts.
+type ActorVolumeStatus struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Name of the volume specified in the actor template. Template volume
 	// names are DNS labels.
@@ -1102,10 +1104,12 @@ type ExternalVolume struct {
 	// +k8s:update=NoUnset # set-once, like name above
 	// +k8s:customValidation
 	VolumeType string `protobuf:"bytes,3,opt,name=volume_type,json=volumeType,proto3" json:"volume_type,omitempty"`
+	// status is the volume's lifecycle state in the storage system.
+	//
 	// +k8s:optional
 	// +k8s:minimum=1
 	// +k8s:maximum=3 # keep this in sync with the Status enum
-	Status ExternalVolume_Status `protobuf:"varint,4,opt,name=status,proto3,enum=ateapi.ExternalVolume_Status" json:"status,omitempty"`
+	Status ActorVolumeStatus_Status `protobuf:"varint,4,opt,name=status,proto3,enum=ateapi.ActorVolumeStatus_Status" json:"status,omitempty"`
 	// volume_context contains metadata returned by the CSI driver during volume
 	// provisioning, needed by the node plugin for mounting (e.g. attachment
 	// info). Keys and values are the driver's own, so they are only bounded,
@@ -1120,20 +1124,20 @@ type ExternalVolume struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *ExternalVolume) Reset() {
-	*x = ExternalVolume{}
+func (x *ActorVolumeStatus) Reset() {
+	*x = ActorVolumeStatus{}
 	mi := &file_ateapi_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ExternalVolume) String() string {
+func (x *ActorVolumeStatus) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ExternalVolume) ProtoMessage() {}
+func (*ActorVolumeStatus) ProtoMessage() {}
 
-func (x *ExternalVolume) ProtoReflect() protoreflect.Message {
+func (x *ActorVolumeStatus) ProtoReflect() protoreflect.Message {
 	mi := &file_ateapi_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1145,40 +1149,40 @@ func (x *ExternalVolume) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ExternalVolume.ProtoReflect.Descriptor instead.
-func (*ExternalVolume) Descriptor() ([]byte, []int) {
+// Deprecated: Use ActorVolumeStatus.ProtoReflect.Descriptor instead.
+func (*ActorVolumeStatus) Descriptor() ([]byte, []int) {
 	return file_ateapi_proto_rawDescGZIP(), []int{6}
 }
 
-func (x *ExternalVolume) GetName() string {
+func (x *ActorVolumeStatus) GetName() string {
 	if x != nil {
 		return x.Name
 	}
 	return ""
 }
 
-func (x *ExternalVolume) GetStorageVolumeId() string {
+func (x *ActorVolumeStatus) GetStorageVolumeId() string {
 	if x != nil {
 		return x.StorageVolumeId
 	}
 	return ""
 }
 
-func (x *ExternalVolume) GetVolumeType() string {
+func (x *ActorVolumeStatus) GetVolumeType() string {
 	if x != nil {
 		return x.VolumeType
 	}
 	return ""
 }
 
-func (x *ExternalVolume) GetStatus() ExternalVolume_Status {
+func (x *ActorVolumeStatus) GetStatus() ActorVolumeStatus_Status {
 	if x != nil {
 		return x.Status
 	}
-	return ExternalVolume_STATUS_UNSPECIFIED
+	return ActorVolumeStatus_STATUS_UNSPECIFIED
 }
 
-func (x *ExternalVolume) GetVolumeContext() map[string]string {
+func (x *ActorVolumeStatus) GetVolumeContext() map[string]string {
 	if x != nil {
 		return x.VolumeContext
 	}
@@ -2052,7 +2056,7 @@ type ActorStatus struct {
 	// +k8s:maxItems=32 # matches the template's volumes bound
 	// +k8s:listType=map
 	// +k8s:listMapKey=name
-	ExternalVolumes []*ExternalVolume `protobuf:"bytes,7,rep,name=external_volumes,json=externalVolumes,proto3" json:"external_volumes,omitempty"`
+	ExternalVolumes []*ActorVolumeStatus `protobuf:"bytes,7,rep,name=external_volumes,json=externalVolumes,proto3" json:"external_volumes,omitempty"`
 	// crash records why and when the Actor entered CRASHED. It is set with the
 	// CRASHED state and cleared when a revert returns the Actor to SUSPENDED.
 	//
@@ -2131,7 +2135,7 @@ func (x *ActorStatus) GetWorkerAssignment() *WorkerAssignment {
 	return nil
 }
 
-func (x *ActorStatus) GetExternalVolumes() []*ExternalVolume {
+func (x *ActorStatus) GetExternalVolumes() []*ActorVolumeStatus {
 	if x != nil {
 		return x.ExternalVolumes
 	}
@@ -8351,14 +8355,14 @@ const file_ateapi_proto_rawDesc = "" +
 	"\vcreate_time\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"createTime\x12;\n" +
 	"\vupdate_time\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"updateTime\"\x9b\x03\n" +
-	"\x0eExternalVolume\x12\x12\n" +
+	"updateTime\"\xa4\x03\n" +
+	"\x11ActorVolumeStatus\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12*\n" +
 	"\x11storage_volume_id\x18\x02 \x01(\tR\x0fstorageVolumeId\x12\x1f\n" +
 	"\vvolume_type\x18\x03 \x01(\tR\n" +
-	"volumeType\x125\n" +
-	"\x06status\x18\x04 \x01(\x0e2\x1d.ateapi.ExternalVolume.StatusR\x06status\x12P\n" +
-	"\x0evolume_context\x18\x05 \x03(\v2).ateapi.ExternalVolume.VolumeContextEntryR\rvolumeContext\x1a@\n" +
+	"volumeType\x128\n" +
+	"\x06status\x18\x04 \x01(\x0e2 .ateapi.ActorVolumeStatus.StatusR\x06status\x12S\n" +
+	"\x0evolume_context\x18\x05 \x03(\v2,.ateapi.ActorVolumeStatus.VolumeContextEntryR\rvolumeContext\x1a@\n" +
 	"\x12VolumeContextEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"]\n" +
@@ -8407,11 +8411,11 @@ const file_ateapi_proto_rawDesc = "" +
 	"\tactor_jwt\x18\x04 \x01(\v2\x16.ateapi.ActorJWTSourceR\bactorJwt\"]\n" +
 	"\x0eActorJWTSource\x12\x1c\n" +
 	"\taudiences\x18\x01 \x03(\tR\taudiences\x12-\n" +
-	"\x12expiration_seconds\x18\x02 \x01(\x03R\x11expirationSeconds\"\xfa\x02\n" +
+	"\x12expiration_seconds\x18\x02 \x01(\x03R\x11expirationSeconds\"\xfd\x02\n" +
 	"\vActorStatus\x12(\n" +
 	"\x05state\x18\x01 \x01(\x0e2\x12.ateapi.ActorStateR\x05state\x12E\n" +
-	"\x11worker_assignment\x18\x02 \x01(\v2\x18.ateapi.WorkerAssignmentR\x10workerAssignment\x12A\n" +
-	"\x10external_volumes\x18\a \x03(\v2\x16.ateapi.ExternalVolumeR\x0fexternalVolumes\x12(\n" +
+	"\x11worker_assignment\x18\x02 \x01(\v2\x18.ateapi.WorkerAssignmentR\x10workerAssignment\x12D\n" +
+	"\x10external_volumes\x18\a \x03(\v2\x19.ateapi.ActorVolumeStatusR\x0fexternalVolumes\x12(\n" +
 	"\x05crash\x18\t \x01(\v2\x12.ateapi.ActorCrashR\x05crash\x12#\n" +
 	"\rassigned_node\x18\n" +
 	" \x01(\tR\fassignedNode\x12.\n" +
@@ -8865,14 +8869,14 @@ var file_ateapi_proto_goTypes = []any{
 	(SandboxClass)(0),                          // 6: ateapi.SandboxClass
 	(ActorMetadataField)(0),                    // 7: ateapi.ActorMetadataField
 	(WorkerState)(0),                           // 8: ateapi.WorkerState
-	(ExternalVolume_Status)(0),                 // 9: ateapi.ExternalVolume.Status
+	(ActorVolumeStatus_Status)(0),              // 9: ateapi.ActorVolumeStatus.Status
 	(*ObjectSnapshot)(nil),                     // 10: ateapi.ObjectSnapshot
 	(*LocalSnapshot)(nil),                      // 11: ateapi.LocalSnapshot
 	(*SnapshotStorage)(nil),                    // 12: ateapi.SnapshotStorage
 	(*Snapshot)(nil),                           // 13: ateapi.Snapshot
 	(*Selector)(nil),                           // 14: ateapi.Selector
 	(*ResourceMetadata)(nil),                   // 15: ateapi.ResourceMetadata
-	(*ExternalVolume)(nil),                     // 16: ateapi.ExternalVolume
+	(*ActorVolumeStatus)(nil),                  // 16: ateapi.ActorVolumeStatus
 	(*Actor)(nil),                              // 17: ateapi.Actor
 	(*EgressPolicy)(nil),                       // 18: ateapi.EgressPolicy
 	(*EgressRule)(nil),                         // 19: ateapi.EgressRule
@@ -8983,7 +8987,7 @@ var file_ateapi_proto_goTypes = []any{
 	(*UpdateAtespaceAccessPolicyRequest)(nil),  // 124: ateapi.UpdateAtespaceAccessPolicyRequest
 	(*DeleteAtespaceAccessPolicyRequest)(nil),  // 125: ateapi.DeleteAtespaceAccessPolicyRequest
 	nil,                           // 126: ateapi.Selector.MatchLabelsEntry
-	nil,                           // 127: ateapi.ExternalVolume.VolumeContextEntry
+	nil,                           // 127: ateapi.ActorVolumeStatus.VolumeContextEntry
 	nil,                           // 128: ateapi.Worker.LabelsEntry
 	nil,                           // 129: ateapi.HardwareIdentity.AttributesEntry
 	(*timestamppb.Timestamp)(nil), // 130: google.protobuf.Timestamp
@@ -8999,8 +9003,8 @@ var file_ateapi_proto_depIdxs = []int32{
 	126, // 7: ateapi.Selector.match_labels:type_name -> ateapi.Selector.MatchLabelsEntry
 	130, // 8: ateapi.ResourceMetadata.create_time:type_name -> google.protobuf.Timestamp
 	130, // 9: ateapi.ResourceMetadata.update_time:type_name -> google.protobuf.Timestamp
-	9,   // 10: ateapi.ExternalVolume.status:type_name -> ateapi.ExternalVolume.Status
-	127, // 11: ateapi.ExternalVolume.volume_context:type_name -> ateapi.ExternalVolume.VolumeContextEntry
+	9,   // 10: ateapi.ActorVolumeStatus.status:type_name -> ateapi.ActorVolumeStatus.Status
+	127, // 11: ateapi.ActorVolumeStatus.volume_context:type_name -> ateapi.ActorVolumeStatus.VolumeContextEntry
 	15,  // 12: ateapi.Actor.metadata:type_name -> ateapi.ResourceMetadata
 	34,  // 13: ateapi.Actor.actor_template:type_name -> ateapi.ObjectRef
 	14,  // 14: ateapi.Actor.worker_selector:type_name -> ateapi.Selector
@@ -9021,7 +9025,7 @@ var file_ateapi_proto_depIdxs = []int32{
 	27,  // 29: ateapi.CredentialHeader.actor_jwt:type_name -> ateapi.ActorJWTSource
 	5,   // 30: ateapi.ActorStatus.state:type_name -> ateapi.ActorState
 	30,  // 31: ateapi.ActorStatus.worker_assignment:type_name -> ateapi.WorkerAssignment
-	16,  // 32: ateapi.ActorStatus.external_volumes:type_name -> ateapi.ExternalVolume
+	16,  // 32: ateapi.ActorStatus.external_volumes:type_name -> ateapi.ActorVolumeStatus
 	29,  // 33: ateapi.ActorStatus.crash:type_name -> ateapi.ActorCrash
 	13,  // 34: ateapi.ActorStatus.snapshots:type_name -> ateapi.Snapshot
 	130, // 35: ateapi.ActorCrash.crash_time:type_name -> google.protobuf.Timestamp
