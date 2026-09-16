@@ -251,7 +251,13 @@ func (w *ActorWorkflow) ensureVolumesCreated(ctx context.Context, actorRef resou
 	}
 	// A borrowed volume is claimed on every resume: the reference is only held
 	// while the actor runs, so the previous pause or suspend gave it back.
-	borrows := slices.ContainsFunc(actorTemplate.GetVolumes(), func(v *ateapipb.Volume) bool {
+	//
+	// The golden actor is the exception. It exists only to warm a template and
+	// be snapshotted, and it lives in ate-golden rather than the template's own
+	// atespace, so the reference would not even resolve. Letting it claim would
+	// also hold the volume against every real actor and bake one actor's data
+	// into the snapshot every other actor starts from.
+	borrows := !isGoldenActor(actor) && slices.ContainsFunc(actorTemplate.GetVolumes(), func(v *ateapipb.Volume) bool {
 		return v.GetExternalVolumeRef() != nil
 	})
 	if !pending && !borrows {

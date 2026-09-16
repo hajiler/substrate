@@ -18,6 +18,7 @@ import (
 	"fmt"
 
 	"github.com/agent-substrate/substrate/internal/proto/ateletpb"
+	"github.com/agent-substrate/substrate/internal/resources"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
@@ -55,6 +56,21 @@ func workloadSpecFromActorTemplate(actorTemplate *ateapipb.ActorTemplate, actor 
 	// already ensured that only one source is set.
 	for _, vol := range actorTemplate.GetVolumes() {
 		switch {
+		case vol.GetExternalVolumeRef() != nil && isGoldenActor(actor):
+			// The golden actor does not borrow. The volume belongs to the
+			// template's atespace rather than ate-golden, and holding it would
+			// both block every real actor and bake one actor's data into the
+			// snapshot they all start from. It still needs a mount at that
+			// path, because `runsc restore` rejects a sandbox whose mounts
+			// differ from the checkpoint's, so it warms up against an empty
+			// scratch directory and the real disk takes its place on restore.
+			workloadSpec.Volumes = append(workloadSpec.Volumes, &ateletpb.Volume{
+				Name: vol.GetName(),
+				Source: &ateletpb.Volume_DurableDir{
+					DurableDir: &ateletpb.DurableDirVolume{},
+				},
+			})
+
 		case vol.GetDurableDir() != nil:
 			workloadSpec.Volumes = append(workloadSpec.Volumes, &ateletpb.Volume{
 				Name: vol.GetName(),
@@ -179,6 +195,11 @@ func appendExternalVolumes(workloadSpec *ateletpb.WorkloadSpec, template *ateapi
 			if !isVolumeMounted(vol.GetName(), template) {
 				continue
 			}
+			// The golden actor never claimed a borrowed volume, so it has no
+			// handle to mount; the caller gave it a scratch directory instead.
+			if vol.GetExternalVolumeRef() != nil && isGoldenActor(actor) {
+				continue
+			}
 			if actor == nil {
 				return fmt.Errorf("actor is required when an external volume is present")
 			}
@@ -210,6 +231,14 @@ func appendExternalVolumes(workloadSpec *ateletpb.WorkloadSpec, template *ateapi
 		}
 	}
 	return nil
+}
+
+// isGoldenActor reports whether actor is the per-template warm-up actor rather
+// than one a user created. Golden actors live in the reserved ate-golden
+// atespace, so anything scoped to the template's own atespace -- a borrowed
+// ExternalVolume, in particular -- does not apply to them.
+func isGoldenActor(actor *ateapipb.Actor) bool {
+	return actor.GetMetadata().GetAtespace() == resources.GoldenActorAtespace
 }
 
 func isVolumeMounted(volumeName string, template *ateapipb.ActorTemplate) bool {

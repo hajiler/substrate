@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/agent-substrate/substrate/internal/proto/ateletpb"
+	"github.com/agent-substrate/substrate/internal/resources"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/protobuf/testing/protocmp"
@@ -486,6 +487,81 @@ func TestAppendExternalVolumes(t *testing.T) {
 	}
 	if err := appendExternalVolumes(&ateletpb.WorkloadSpec{}, template, missingActor); err == nil {
 		t.Errorf("appendExternalVolumes expected error for missing volume, got nil")
+	}
+}
+
+// TestWorkloadSpecBorrowedVolumeForGoldenActor covers the warm-up actor a
+// template snapshot is taken from. It never claims a borrowed volume, so it
+// warms up against a scratch directory at the same mount path; the real disk
+// takes that place when an actor restores from the snapshot.
+func TestWorkloadSpecBorrowedVolumeForGoldenActor(t *testing.T) {
+	template := &ateapipb.ActorTemplate{
+		Metadata: &ateapipb.ResourceMetadata{Atespace: "space-abc", Name: "tmpl1"},
+		Volumes: []*ateapipb.Volume{
+			{Name: "borrowed", ExternalVolumeRef: &ateapipb.ExternalVolumeRef{Name: "shared"}},
+			{Name: "owned", ExternalVolumeTemplate: &ateapipb.ExternalVolumeTemplate{StorageClassName: "standard"}},
+		},
+		Containers: []*ateapipb.Container{{
+			Name: "main",
+			VolumeMounts: []*ateapipb.VolumeMount{
+				{Name: "borrowed", MountPath: "/mnt/shared"},
+				{Name: "owned", MountPath: "/mnt/owned"},
+			},
+		}},
+	}
+	golden := &ateapipb.Actor{
+		Metadata: &ateapipb.ResourceMetadata{Atespace: resources.GoldenActorAtespace, Name: "tmpl1-uid"},
+		Status: &ateapipb.ActorStatus{ActorVolumes: []*ateapipb.ActorVolumeStatus{
+			{VolumeName: "owned", StorageVolumeId: "disk-1", VolumeType: "pd.csi.storage.gke.io"},
+		}},
+	}
+
+	got, err := workloadSpecFromActorTemplate(template, golden)
+	if err != nil {
+		t.Fatalf("workloadSpecFromActorTemplate: %v", err)
+	}
+	// Both mounts survive, so the checkpoint's mount set is the one every
+	// restore from it presents; only the borrowed volume's backing changes.
+	want := &ateletpb.WorkloadSpec{
+		Volumes: []*ateletpb.Volume{
+			{
+				Name:   "borrowed",
+				Source: &ateletpb.Volume_DurableDir{DurableDir: &ateletpb.DurableDirVolume{}},
+			},
+			{
+				Name: "owned",
+				Source: &ateletpb.Volume_External{External: &ateletpb.ExternalVolumeSource{
+					StorageVolumeId: "disk-1",
+					VolumeType:      "pd.csi.storage.gke.io",
+				}},
+			},
+		},
+		Containers: []*ateletpb.Container{{
+			Name: "main",
+			VolumeMounts: []*ateletpb.VolumeMount{
+				{Name: "borrowed", MountPath: "/mnt/shared"},
+				{Name: "owned", MountPath: "/mnt/owned"},
+			},
+		}},
+	}
+	if diff := cmp.Diff(want, got, protocmp.Transform()); diff != "" {
+		t.Errorf("workloadSpecFromActorTemplate mismatch (-want +got):\n%s", diff)
+	}
+
+	// A user's actor keeps both, so the skip is scoped to the golden actor.
+	ordinary := &ateapipb.Actor{
+		Metadata: &ateapipb.ResourceMetadata{Atespace: "space-abc", Name: "consumer"},
+		Status: &ateapipb.ActorStatus{ActorVolumes: []*ateapipb.ActorVolumeStatus{
+			{VolumeName: "owned", StorageVolumeId: "disk-1", VolumeType: "pd.csi.storage.gke.io"},
+			{VolumeName: "borrowed", ExternalVolumeName: "shared", StorageVolumeId: "disk-2", VolumeType: "pd.csi.storage.gke.io"},
+		}},
+	}
+	spec, err := workloadSpecFromActorTemplate(template, ordinary)
+	if err != nil {
+		t.Fatalf("workloadSpecFromActorTemplate(ordinary): %v", err)
+	}
+	if len(spec.GetVolumes()) != 2 || len(spec.GetContainers()[0].GetVolumeMounts()) != 2 {
+		t.Errorf("an ordinary actor got %d volumes and %d mounts, want 2 and 2", len(spec.GetVolumes()), len(spec.GetContainers()[0].GetVolumeMounts()))
 	}
 }
 
