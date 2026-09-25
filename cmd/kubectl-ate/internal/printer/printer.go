@@ -373,6 +373,85 @@ func PrintTagTo(out io.Writer, tag *ateapipb.Tag, format string) error {
 	return PrintTagsTo(out, []*ateapipb.Tag{tag}, format)
 }
 
+// PrintExternalVolumesTo prints external volumes to the provided writer.
+func PrintExternalVolumesTo(out io.Writer, volumes []*ateapipb.ExternalVolume, format string) error {
+	slices.SortFunc(volumes, func(a, b *ateapipb.ExternalVolume) int {
+		if c := cmp.Compare(a.GetMetadata().GetAtespace(), b.GetMetadata().GetAtespace()); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.GetMetadata().GetName(), b.GetMetadata().GetName())
+	})
+	switch format {
+	case "json", "yaml":
+		return printProto(out, &ateapipb.ListExternalVolumesResponse{ExternalVolumes: volumes}, format)
+	case "table":
+		w := tabwriter.NewWriter(out, 0, 0, 3, ' ', 0)
+		fmt.Fprintln(w, "ATESPACE\tNAME\tSTATE\tVOLUME TYPE\tVOLUME ID\tACCESS MODE\tDELETE TRIGGER\tREFS\tAGE")
+		for _, volume := range volumes {
+			volumeType, volumeID := "<none>", "<none>"
+			if volume.GetVolumeId() != "" {
+				volumeType, volumeID = volume.GetVolumeType(), volume.GetVolumeId()
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				volume.GetMetadata().GetAtespace(), volume.GetMetadata().GetName(),
+				externalVolumeState(volume), volumeType, volumeID,
+				accessModeLabel(volume.GetAccessMode()), deleteTriggerLabel(volume.GetDeleteTrigger()),
+				externalVolumeRefs(volume), formatAge(volume.GetMetadata().GetCreateTime()))
+		}
+		return w.Flush()
+	default:
+		return fmt.Errorf("unsupported format %q", format)
+	}
+}
+
+func externalVolumeState(volume *ateapipb.ExternalVolume) string {
+	if volume.GetStatus().GetState() != ateapipb.ExternalVolumeState_EXTERNAL_VOLUME_STATE_READY {
+		return "Pending"
+	}
+	return "Ready"
+}
+
+func accessModeLabel(mode ateapipb.AccessMode) string {
+	switch mode {
+	case ateapipb.AccessMode_ACCESS_MODE_READ_WRITE_ONCE:
+		return "RWO"
+	case ateapipb.AccessMode_ACCESS_MODE_READ_WRITE_MANY:
+		return "RWX"
+	default:
+		return "<unknown>"
+	}
+}
+
+func deleteTriggerLabel(trigger ateapipb.DeleteTrigger) string {
+	switch trigger {
+	case ateapipb.DeleteTrigger_DELETE_TRIGGER_MANUAL:
+		return "Manual"
+	case ateapipb.DeleteTrigger_DELETE_TRIGGER_LAST_ACTOR:
+		return "LastActor"
+	default:
+		return "<unknown>"
+	}
+}
+
+// externalVolumeRefs renders the reference count as active/total.
+func externalVolumeRefs(volume *ateapipb.ExternalVolume) string {
+	active := 0
+	for _, ref := range volume.GetStatus().GetRefs() {
+		if ref.GetActive() {
+			active++
+		}
+	}
+	return fmt.Sprintf("%d/%d", active, len(volume.GetStatus().GetRefs()))
+}
+
+// PrintExternalVolumeTo prints a single external volume to the provided writer.
+func PrintExternalVolumeTo(out io.Writer, volume *ateapipb.ExternalVolume, format string) error {
+	if format == "json" || format == "yaml" {
+		return printProto(out, volume, format)
+	}
+	return PrintExternalVolumesTo(out, []*ateapipb.ExternalVolume{volume}, format)
+}
+
 func sortAtespaces(atespaces []*ateapipb.Atespace) {
 	slices.SortFunc(atespaces, func(a, b *ateapipb.Atespace) int {
 		return cmp.Compare(a.GetMetadata().GetName(), b.GetMetadata().GetName())

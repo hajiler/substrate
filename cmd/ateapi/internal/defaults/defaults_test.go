@@ -70,6 +70,14 @@ func TestApply(t *testing.T) {
 			OnResume: &ateapipb.OnResumeConfig{FromData: ateapipb.ResumeSource_RESUME_SOURCE_COLD_BOOT},
 		}},
 	}, {
+		name: "external volume without an access mode gets read write once",
+		in:   &ateapipb.ExternalVolume{},
+		want: &ateapipb.ExternalVolume{AccessMode: ateapipb.AccessMode_ACCESS_MODE_READ_WRITE_ONCE},
+	}, {
+		name: "external volume keeps its access mode",
+		in:   &ateapipb.ExternalVolume{AccessMode: ateapipb.AccessMode_ACCESS_MODE_READ_WRITE_MANY},
+		want: &ateapipb.ExternalVolume{AccessMode: ateapipb.AccessMode_ACCESS_MODE_READ_WRITE_MANY},
+	}, {
 		name: "container without wakeup probe stays without one",
 		in:   &ateapipb.ActorTemplate{Containers: []*ateapipb.Container{{Name: "main"}}},
 		want: &ateapipb.ActorTemplate{Containers: []*ateapipb.Container{{Name: "main"}}},
