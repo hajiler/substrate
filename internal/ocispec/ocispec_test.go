@@ -47,6 +47,7 @@ func TestBuild_VolumeMounts(t *testing.T) {
 		durableVolume("data"),
 		{Name: "sysinfo", Source: &ateletpb.Volume_SystemInfo{SystemInfo: &ateletpb.SystemInfoVolume{}}},
 		{Name: "csi", Source: &ateletpb.Volume_External{External: &ateletpb.ExternalVolumeSource{}}},
+		{Name: "empty", Source: &ateletpb.Volume_EmptyDir{EmptyDir: &ateletpb.EmptyDirVolume{}}},
 		{Name: "agent", Source: &ateletpb.Volume_Image{Image: &ateletpb.ImageVolumeSource{}}},
 	}
 	spec := Build(Options{
@@ -59,6 +60,7 @@ func TestBuild_VolumeMounts(t *testing.T) {
 			{Name: "data", MountPath: "/home/counter"},
 			{Name: "sysinfo", MountPath: "/run/ate"},
 			{Name: "csi", MountPath: "/mnt/csi"},
+			{Name: "empty", MountPath: "/mnt/empty"},
 			{Name: "agent", MountPath: "/ate"},
 		},
 	})
@@ -72,6 +74,7 @@ func TestBuild_VolumeMounts(t *testing.T) {
 		{"/home/counter", ateompath.DurableDirVolumeMountPoint(testActorUID, "data"), []string{"bind", "rw"}},
 		{"/run/ate", ateompath.SystemInfoVolumeRoot(testActorUID, "sysinfo"), []string{"bind", "ro"}},
 		{"/mnt/csi", ateompath.VolumeHostPath(testActorUID, "csi"), []string{"bind", "rw"}},
+		{"/mnt/empty", ateompath.VolumeHostPath(testActorUID, "empty"), []string{"bind", "rw"}},
 		{"/ate", ateompath.ImageVolumeMountPath(testActorUID, "app", "agent"), []string{"bind", "ro"}},
 	} {
 		m := mountFor(t, spec, tc.dest)
