@@ -374,6 +374,15 @@ message ActorVolumeStatus {
   // +k8s:eachKey=+k8s:maxLength=128
   // +k8s:eachVal=+k8s:maxLength=256
   map<string, string> volume_context = 5;
+
+  // external_volume_name names the ExternalVolume this mount references, in the
+  // actor's atespace. Empty when the actor owns the volume itself.
+  //
+  // +k8s:optional
+  // +k8s:format=k8s-short-name
+  // +k8s:update=NoModify
+  // +k8s:update=NoUnset
+  string external_volume_name = 6;
 }
 
 message Actor {
@@ -411,6 +420,17 @@ message Actor {
   //
   // +k8s:optional
   ActorStatus status = 7;
+
+  // external_volume_bindings maps each unnamed external_volume_ref in the
+  // template, by volume name, to the ExternalVolume this actor mounts. Every
+  // unnamed ref must be bound; a named ref cannot be rebound. Set at creation.
+  //
+  // +k8s:optional
+  // +k8s:maxProperties=32
+  // +k8s:eachKey=+k8s:format=k8s-short-name
+  // +k8s:eachVal=+k8s:format=k8s-short-name
+  // +k8s:immutable
+  map<string, string> external_volume_bindings = 8;
 }
 
 // EgressPolicy is an egress policy resource nested under an Actor. An Actor has
@@ -1252,8 +1272,8 @@ message Volume {
   // +k8s:format=k8s-short-name
   string name = 1;
 
-  // Exactly one of durable_dir / external_volume_template / image /
-  // system_info must be set.
+  // Exactly one of durable_dir / external_volume_template /
+  // external_volume_ref / image / system_info must be set.
   //
   // +k8s:optional
   // +k8s:unionMember
@@ -1262,6 +1282,12 @@ message Volume {
   // +k8s:optional
   // +k8s:unionMember
   ExternalVolumeTemplate external_volume_template = 3;
+
+  // external_volume_ref mounts an ExternalVolume that already exists.
+  //
+  // +k8s:optional
+  // +k8s:unionMember
+  ExternalVolumeRef external_volume_ref = 4;
 
   // +k8s:optional
   // +k8s:unionMember
@@ -1307,6 +1333,17 @@ message ExternalVolumeTemplate {
   // +k8s:required
   // +k8s:format=k8s-long-name
   string storage_class_name = 2;
+}
+
+// ExternalVolumeRef mounts an ExternalVolume in the actor's atespace. The
+// volume outlives the actor, so several actors can mount it in turn.
+message ExternalVolumeRef {
+  // name of the ExternalVolume. Left empty, the actor names it at creation in
+  // Actor.external_volume_bindings.
+  //
+  // +k8s:optional
+  // +k8s:format=k8s-short-name
+  string name = 1;
 }
 
 // SystemInfoVolumeSource is a read-only volume of substrate-generated
