@@ -168,7 +168,7 @@ func Build(o Options) *specs.Spec {
 		switch volumesByName[vm.GetName()].GetSource().(type) {
 		case *ateletpb.Volume_DurableDir:
 			srcPath = ateompath.DurableDirVolumeMountPoint(o.ActorUID, vm.GetName())
-		case *ateletpb.Volume_External:
+		case *ateletpb.Volume_External, *ateletpb.Volume_EmptyDir:
 			srcPath = ateompath.VolumeHostPath(o.ActorUID, vm.GetName())
 		case *ateletpb.Volume_SystemInfo:
 			srcPath = ateompath.SystemInfoVolumeRoot(o.ActorUID, vm.GetName())
