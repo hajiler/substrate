@@ -36,6 +36,8 @@ func Apply(m proto.Message) {
 		applyAtespaceDefaults(v)
 	case *ateapipb.EgressPolicy:
 		applyEgressPolicyDefaults(v)
+	case *ateapipb.ExternalVolume:
+		applyExternalVolumeDefaults(v)
 	case *ateapipb.Tag:
 		applyTagDefaults(v)
 	case *ateapipb.Worker:
@@ -94,6 +96,15 @@ func applyActorDefaults(*ateapipb.Actor) {}
 func applyAtespaceDefaults(*ateapipb.Atespace) {}
 
 func applyEgressPolicyDefaults(*ateapipb.EgressPolicy) {}
+
+func applyExternalVolumeDefaults(v *ateapipb.ExternalVolume) {
+	if v == nil {
+		return
+	}
+	if v.AccessMode == ateapipb.AccessMode_ACCESS_MODE_UNSPECIFIED {
+		v.AccessMode = ateapipb.AccessMode_ACCESS_MODE_READ_WRITE_ONCE
+	}
+}
 
 func applyTagDefaults(*ateapipb.Tag) {}
 

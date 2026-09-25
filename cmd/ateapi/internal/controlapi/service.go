@@ -38,18 +38,19 @@ import (
 // ServiceImpl for business logic and invariants.
 type RPCService struct {
 	ateapipb.UnimplementedControlServer
-	impl                  serviceStore
-	persistence           serviceStore
-	workerCache           *workercache.Cache
-	dialer                *AteletDialer
-	sandboxConfigLister   listersv1alpha1.SandboxConfigLister
-	csiDriverConfigLister listersv1alpha1.CSIDriverConfigLister
-	actorWorkflow         *ActorWorkflow
-	workerWorkflow        *WorkerWorkflow
-	instruments           *Instruments
-	mu                    sync.RWMutex
-	volumePlugins         map[string]volume.VolumePluginControlPlane
-	objectStore           objectstore.Store
+	impl                   serviceStore
+	persistence            serviceStore
+	workerCache            *workercache.Cache
+	dialer                 *AteletDialer
+	sandboxConfigLister    listersv1alpha1.SandboxConfigLister
+	csiDriverConfigLister  listersv1alpha1.CSIDriverConfigLister
+	actorWorkflow          *ActorWorkflow
+	workerWorkflow         *WorkerWorkflow
+	externalVolumeWorkflow *ExternalVolumeWorkflow
+	instruments            *Instruments
+	mu                     sync.RWMutex
+	volumePlugins          map[string]volume.VolumePluginControlPlane
+	objectStore            objectstore.Store
 
 	actorIdentityJWTIssuer string
 	actorIDJWTPool         localjwtauthority.Pool
@@ -103,6 +104,7 @@ func NewRPCService(
 	}
 	s.actorWorkflow = NewActorWorkflow(impl, workerCache, dialer, sandboxConfigLister, storageClassLister, instruments, egressGatewayAddress, s, objectStore)
 	s.workerWorkflow = NewWorkerWorkflow(impl)
+	s.externalVolumeWorkflow = NewExternalVolumeWorkflow(impl, storageClassLister, s)
 	return s
 }
 
@@ -121,6 +123,11 @@ type serviceStore interface {
 	ListTags(ctx context.Context, atespace string, opts store.ListOptions) (store.ListResponse[*ateapipb.Tag], error)
 	UpdateTag(ctx context.Context, tagRef resources.TagRef, precondition store.Precondition, mutate func(toUpdate *ateapipb.Tag) error) (*ateapipb.Tag, error)
 	DeleteTag(ctx context.Context, tagRef resources.TagRef, precondition store.DeletePreconditions) (*ateapipb.Tag, error)
+	CreateExternalVolume(ctx context.Context, volume *ateapipb.ExternalVolume) (*ateapipb.ExternalVolume, error)
+	GetExternalVolume(ctx context.Context, volumeRef resources.ExternalVolumeRef) (*ateapipb.ExternalVolume, error)
+	ListExternalVolumes(ctx context.Context, atespace string, opts store.ListOptions) (store.ListResponse[*ateapipb.ExternalVolume], error)
+	UpdateExternalVolume(ctx context.Context, volumeRef resources.ExternalVolumeRef, precondition store.Precondition, mutate func(toUpdate *ateapipb.ExternalVolume) error) (*ateapipb.ExternalVolume, error)
+	DeleteExternalVolume(ctx context.Context, volumeRef resources.ExternalVolumeRef, precondition store.DeletePreconditions) (*ateapipb.ExternalVolume, error)
 	CreateAtespace(ctx context.Context, atespace *ateapipb.Atespace) (*ateapipb.Atespace, error)
 	GetAtespace(ctx context.Context, name string) (*ateapipb.Atespace, error)
 	ListAtespaces(ctx context.Context, opts store.ListOptions) (store.ListResponse[*ateapipb.Atespace], error)

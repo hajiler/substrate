@@ -107,9 +107,9 @@ func ValidateCustom_WorkerAssignment_WorkerPodIp(_ context.Context, _ operation.
 	return validation.IsValidIP(fldPath, *value)
 }
 
-// ValidateCustom_ActorVolumeStatus_VolumeType checks that a volume type string is well-formed.
+// validateVolumeType checks that a volume type string is well-formed.
 // It allows an optional "substrate.io/" prefix, followed by a valid DNS-1123 subdomain.
-func ValidateCustom_ActorVolumeStatus_VolumeType(_ context.Context, _ operation.Operation, fldPath *field.Path, value, _ *string) field.ErrorList {
+func validateVolumeType(fldPath *field.Path, value *string) field.ErrorList {
 	if value == nil || *value == "" {
 		return nil
 	}
@@ -121,9 +121,11 @@ func ValidateCustom_ActorVolumeStatus_VolumeType(_ context.Context, _ operation.
 	return errs
 }
 
-// ValidateCustom_ActorVolumeStatus_StorageVolumeId checks that an external volume's storage ID does not
-// contain control characters (U+0000-U+0008, U+000B, U+000C, U+000E-U+001F, U+007F-U+009F).
-func ValidateCustom_ActorVolumeStatus_StorageVolumeId(_ context.Context, _ operation.Operation, fldPath *field.Path, value, _ *string) field.ErrorList {
+// validateStorageVolumeID checks that a volume's storage ID does not contain
+// control characters (U+0000-U+0008, U+000B, U+000C, U+000E-U+001F,
+// U+007F-U+009F). The ID's format is the storage system's own, so that is all
+// there is to check.
+func validateStorageVolumeID(fldPath *field.Path, value *string) field.ErrorList {
 	if value == nil || *value == "" {
 		return nil
 	}
@@ -137,4 +139,20 @@ func ValidateCustom_ActorVolumeStatus_StorageVolumeId(_ context.Context, _ opera
 		}
 	}
 	return nil
+}
+
+func ValidateCustom_ActorVolumeStatus_VolumeType(_ context.Context, _ operation.Operation, fldPath *field.Path, value, _ *string) field.ErrorList {
+	return validateVolumeType(fldPath, value)
+}
+
+func ValidateCustom_ActorVolumeStatus_StorageVolumeId(_ context.Context, _ operation.Operation, fldPath *field.Path, value, _ *string) field.ErrorList {
+	return validateStorageVolumeID(fldPath, value)
+}
+
+func ValidateCustom_ExternalVolume_VolumeType(_ context.Context, _ operation.Operation, fldPath *field.Path, value, _ *string) field.ErrorList {
+	return validateVolumeType(fldPath, value)
+}
+
+func ValidateCustom_ExternalVolume_VolumeId(_ context.Context, _ operation.Operation, fldPath *field.Path, value, _ *string) field.ErrorList {
+	return validateStorageVolumeID(fldPath, value)
 }
