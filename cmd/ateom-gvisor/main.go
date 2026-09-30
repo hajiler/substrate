@@ -978,10 +978,14 @@ func (s *AteomService) RestoreWorkload(ctx context.Context, req *ateompb.Restore
 		return nil, err
 	}
 	rcmd := &runsc{
-		path:           req.GetRunscPath(),
-		actorUID:       req.GetActorUid(),
-		size:           sizing.FromLimits(req.GetCpuMilli(), req.GetMemoryBytes()),
-		durableVolumes: durableVolumeNames(req.GetSpec()),
+		path:                  req.GetRunscPath(),
+		actorUID:              req.GetActorUid(),
+		size:                  sizing.FromLimits(req.GetCpuMilli(), req.GetMemoryBytes()),
+		durableVolumes:        durableVolumeNames(req.GetSpec()),
+		restoreSpecValidation: restoreSpecValidationFor(req.GetSpec()),
+	}
+	if rcmd.restoreSpecValidation != "" {
+		slog.InfoContext(ctx, "Relaxing runsc restore spec validation for a workload with CSI volumes", slog.String("policy", rcmd.restoreSpecValidation))
 	}
 	var containersToDelete []string
 	defer func() {
