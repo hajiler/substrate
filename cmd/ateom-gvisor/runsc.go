@@ -42,6 +42,48 @@ type runsc struct {
 	size sizing.SandboxSize
 	// durableVolumes are the durable-dir volume names declared to the sandbox.
 	durableVolumes []string
+	// restoreSpecValidation overrides runsc's restore spec validation policy
+	// ("ignore", "warning", "enforce"); empty keeps runsc's default (enforce).
+	restoreSpecValidation string
+}
+
+// hasCsiVolumes reports whether any container mounts a CSI volume.
+func hasCsiVolumes(containers []*ateompb.Container) bool {
+	for _, c := range containers {
+		if len(c.GetCsiVolumeMounts()) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// restoreSpecValidationFor downgrades runsc's restore spec validation to a
+// warning for workloads with CSI volumes: runsc adds disable_file_handle_sharing
+// to NFS/FUSE bind mounts, so a golden checkpoint taken over a local directory
+// otherwise fails the mount-options check on restore.
+//
+// TODO(shared-volumes): scope to golden-based restores; drop once runsc stops
+// comparing host-derived mount options.
+func restoreSpecValidationFor(spec *ateompb.WorkloadSpec) string {
+	if hasCsiVolumes(spec.GetContainers()) {
+		return "warning"
+	}
+	return ""
+}
+
+// globalArgs returns the flags every runsc invocation gets. The sandbox process
+// inherits them from the pause container's `runsc create`, so restore policies
+// must be here rather than only on `runsc restore`.
+func (r *runsc) globalArgs() []string {
+	args := []string{
+		"-log-format", "json",
+		"--alsologtostderr",
+		"-root", ateompath.RunSCStateDir(r.actorUID),
+	}
+	if r.restoreSpecValidation != "" {
+		args = append(args, "--restore-spec-validation="+r.restoreSpecValidation)
+	}
+	return args
 }
 
 // durableVolumeNames returns the sorted, deduplicated durable-dir volume names
@@ -74,6 +116,22 @@ func (r *runsc) shapeSpec(containerName string) error {
 	return ocispec.Save(bundle, spec)
 }
 
+// createArgs builds the argv for `runsc create <container>`.
+func (r *runsc) createArgs(containerName string, additionalArgs []string) []string {
+	args := r.globalArgs()
+	// Provision the sentry's vCPU count from the cgroup CPU quota written by
+	// sizing.ApplyToOCISpec, so the sandbox is sized to the pod's limit (runsc
+	// otherwise sizes to all host CPUs). Global flag: before the subcommand.
+	args = append(args, "--cpu-num-from-quota")
+	args = append(args,
+		"create",
+		"-bundle", ateompath.OCIBundlePath(r.actorUID, containerName),
+		"-pid-file", ateompath.PIDFilePath(r.actorUID, containerName),
+	)
+	args = append(args, additionalArgs...)
+	return append(args, containerName)
+}
+
 func (r *runsc) cmdCreate(ctx context.Context, out io.Writer, containerName string, additionalArgs []string) error {
 	slog.InfoContext(ctx, "About to run runsc create", slog.String("container", containerName))
 
@@ -81,32 +139,10 @@ func (r *runsc) cmdCreate(ctx context.Context, out io.Writer, containerName stri
 		return fmt.Errorf("while shaping the OCI spec for %q: %w", containerName, err)
 	}
 
-	args := []string{
-		"-log-format", "json",
-		"--alsologtostderr",
-		// "-debug",
-		// "-debug-log", ateompath.RunscDebugLogDir(r.actorUID, containerName) + "/",
-		// "-debug-to-user-log",
-		// "-log-packets",
-		// "-strace",
-		"-root", ateompath.RunSCStateDir(r.actorUID),
-		// Provision the sentry's vCPU count from the cgroup CPU quota written by
-		// sizing.ApplyToOCISpec, so the sandbox is sized to the pod's limit (runsc
-		// otherwise sizes to all host CPUs). Global flag: before the subcommand.
-		"--cpu-num-from-quota",
-	}
-	args = append(args,
-		"create",
-		"-bundle", ateompath.OCIBundlePath(r.actorUID, containerName),
-		"-pid-file", ateompath.PIDFilePath(r.actorUID, containerName),
-	)
-
-	args = append(args, additionalArgs...)
-	args = append(args, containerName) // Name of the container
 	cmd := exec.CommandContext(
 		ctx,
 		r.path,
-		args...,
+		r.createArgs(containerName, additionalArgs)...,
 	)
 	cmd.Stdout = out
 	cmd.Stderr = out
@@ -260,6 +296,22 @@ func (r *runsc) cmdResume(ctx context.Context, containerName string) error {
 	return nil
 }
 
+// restoreArgs builds the argv for `runsc restore <container>`.
+func (r *runsc) restoreArgs(containerName, checkpointPath string) []string {
+	args := r.globalArgs()
+	// Match createArgs: size the restored sentry from the cgroup CPU quota.
+	args = append(args, "--cpu-num-from-quota")
+	return append(args,
+		"restore",
+		"-bundle", ateompath.OCIBundlePath(r.actorUID, containerName),
+		"-image-path", checkpointPath,
+		"-pid-file", ateompath.PIDFilePath(r.actorUID, containerName),
+		"-background",
+		"-detach",
+		containerName,
+	)
+}
+
 // We take a checkpoint only of the root container of the sandbox, but we need
 // to call restore on each container, using the same checkpoint.
 func (r *runsc) cmdRestore(ctx context.Context, out io.Writer, containerName, checkpointPath string) error {
@@ -269,28 +321,7 @@ func (r *runsc) cmdRestore(ctx context.Context, out io.Writer, containerName, ch
 		return fmt.Errorf("while shaping the OCI spec for %q: %w", containerName, err)
 	}
 
-	restoreArgs := []string{
-		"-log-format", "json",
-		"--alsologtostderr",
-		// "-debug",
-		// "-debug-log", ateompath.RunscDebugLogDir(r.actorUID, containerName)+"/",
-		// "-debug-to-user-log",
-		// "-log-packets",
-		// "-strace",
-		"-root", ateompath.RunSCStateDir(r.actorUID),
-		// Match cmdCreate: size the restored sentry from the cgroup CPU quota.
-		"--cpu-num-from-quota",
-	}
-	restoreArgs = append(restoreArgs,
-		"restore",
-		"-bundle", ateompath.OCIBundlePath(r.actorUID, containerName),
-		"-image-path", checkpointPath,
-		"-pid-file", ateompath.PIDFilePath(r.actorUID, containerName),
-		"-background",
-		"-detach",
-		containerName,
-	)
-	cmd := exec.CommandContext(ctx, r.path, restoreArgs...)
+	cmd := exec.CommandContext(ctx, r.path, r.restoreArgs(containerName, checkpointPath)...)
 	cmd.Stdout = out
 	cmd.Stderr = out
 	if err := reaper.RunCommand(cmd); err != nil {
