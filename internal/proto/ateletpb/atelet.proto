@@ -293,6 +293,10 @@ message WorkloadSpec {
 message DurableDirVolume {
 }
 
+// EmptyDirVolume is an empty host directory at the external volume path.
+message EmptyDirVolume {
+}
+
 message ExternalVolumeSource {
   string storage_volume_id = 1;
   string volume_type = 2;
@@ -358,6 +362,7 @@ message Volume {
     ExternalVolumeSource external = 3;
     SystemInfoVolume system_info = 4;
     ImageVolumeSource image = 5;
+    EmptyDirVolume empty_dir = 6;
   }
 }
 
