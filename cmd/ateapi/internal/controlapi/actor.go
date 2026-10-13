@@ -89,15 +89,21 @@ func (s *ServiceImpl) CreateActor(ctx context.Context, inActor *ateapipb.Actor) 
 
 	// Resolve the explicit tag, or freeze the template's current golden default.
 	tagRef := inActor.GetSourceTag()
-	if tagRef == nil {
-		tagRef = template.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag()
-	} else {
+	switch {
+	case tagRef != nil:
 		for _, volume := range template.GetVolumes() {
 			if volume.GetExternalVolumeTemplate() != nil {
 				// TODO: Permit cloning after CSI volume snapshots are supported.
 				return nil, apierror.FailedPrecondition("Tag cloning does not support ActorTemplates with external volumes")
 			}
+			if volume.GetExternalVolumeRef() != nil {
+				return nil, apierror.FailedPrecondition("Tag cloning does not support ActorTemplates that reference an ExternalVolume")
+			}
 		}
+	case templateHasExternalVolumeRef(template):
+		// TODO(shared-volumes): restore from the golden once checkpoint and restore mount options agree for external volume refs; see docs/csi-volumes.md.
+	default:
+		tagRef = template.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag()
 	}
 	var sourceTag *ateapipb.Tag
 	if tagRef != nil {
@@ -119,6 +125,13 @@ func (s *ServiceImpl) CreateActor(ctx context.Context, inActor *ateapipb.Actor) 
 	initVols, err := initialActorVolumes(ctx, s.storageClassLister, template)
 	if err != nil {
 		return nil, err
+	}
+	if !isGoldenActor(inActor) {
+		refVols, err := resolveExternalVolumeRefs(ctx, s.store, inActor, template)
+		if err != nil {
+			return nil, err
+		}
+		initVols = append(initVols, refVols...)
 	}
 
 	// Verify that the result is properly valid before storing it.
@@ -158,11 +171,20 @@ func (s *ServiceImpl) CreateActor(ctx context.Context, inActor *ateapipb.Actor) 
 		return nil, fmt.Errorf("while recording actor: %w", err)
 	}
 
+	// Resume re-takes any reference missed here, so this does not fail the create.
+	if err := bindExternalVolumes(ctx, s.store, stored); err != nil {
+		slog.WarnContext(ctx, "Failed to bind external volumes to new actor", slog.Any("actor", resources.ActorRefFromActor(stored)), slog.Any("err", err))
+	}
+
 	// Without this an actor that is created and never resumed has no record at
 	// all, at any retention.
 	logActorStateChanged(ctx, stored, ateattr.OperationCreate)
 
 	return stored, nil
+}
+
+func isGoldenActor(actor *ateapipb.Actor) bool {
+	return actor.GetMetadata().GetAtespace() == resources.GoldenActorAtespace
 }
 
 // resolveTagSource resolves a CreateActor request's source tag
